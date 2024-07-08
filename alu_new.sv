@@ -1,10 +1,8 @@
 // ALUop inputs
-// 0000 -> Ain && Bin
-// 0001 -> Ain || Bin
-// 0010 -> Ain + Bin
-// 0110 -> Ain - Bin
-// 0111 -> Ain < Bin
-// 1100 -> Ain ~| Bin
+// 4'b0000: AND
+// 4'b0001: OR
+// 4'b0010: ADD
+// 4'b0110: SUB
 
 
 
@@ -12,7 +10,7 @@ module ALU(Ain, Bin, ALUop, out, Z);
     input [31:0] Ain, Bin;
     input [3:0] ALUop;
     output reg [31:0] out;
-    output reg [2:0] Z; //Z[2] is overflow, Z[1] N, Z[0] Zero
+    output reg [2:0] Z; //Z[2] is overflow, Z[1] Negative, Z[0] Zero
 
     //ADDSUB connection
     wire [31:0] s;
@@ -21,25 +19,23 @@ module ALU(Ain, Bin, ALUop, out, Z);
     AddSub addsub(
         .a(Ain),
         .b(Bin),
-        .sub(ALUop[0]),
+        .sub(ALUop[2]),
         .s(s),
         .ovf(ovf)
     );
 
     always @(*) begin
         case(ALUop)
-            4'b0000: begin
-                out = Ain && Bin;
+            4'b0000: out = Ain && Bin;
+            4'b0001: out = Ain || Bin;
+            4'b0010: begin
+                out = Ain + Bin;
                 Z[2] = ovf; // Overflow flag, provided by addsub
             end
-            4'b0001: begin
-                out = Ain || Bin;
-                Z[2] = ovf;
+            4'b0110: begin
+                out = Ain - Bin;
+                Z[2] = ovf; // Overflow flag, provided by addsub
             end
-            4'b0010: out = Ain + Bin;
-            4'b0110: out = Ain - Bin;
-            4'b0111: out = Ain < Bin;
-            4'b1100: out = Ain ~| Bin;
             default: out = {32{1'bx}};
         endcase
 
@@ -58,7 +54,7 @@ module ALU(Ain, Bin, ALUop, out, Z);
 endmodule
 
 // From Dally 10.3 and Slide Set 10, Slide 28
-// add a+b or subtract a-b, check for overflow
+// add a+b or subtract a-b, check for overflow (AddSub is only used to calculate overflow)
 module AddSub(a,b,sub,s,ovf) ;
     parameter n = 32 ;
     input [n-1:0] a, b ;
