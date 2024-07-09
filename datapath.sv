@@ -123,9 +123,9 @@ module ImmGen(in, imm_out);
     output  [63:0] imm_out;     // Sign extended 64-bit immediate 
 
     case(in[6:0])
-        7'b0100000: imm_out = {in[31], 20'd0, in[30:20]};
-        7'b1000000: imm_out = {in[31:25], 20'd0, in[] }
-        7'b1100000: imm_out = {in[31], zeros, in[30:25], in[7], in}
+        7'b0100000: imm_out = {in[31], 20'd0, in[30:20]}; // LW
+        7'b1000000: imm_out = {in[31:25], 20'd0, in[] }; // SW
+        7'b1100000: imm_out = {in[31], zeros, in[30:25], in[7], in}; // BEQ
         default: imm_out = 
     endcase
 
