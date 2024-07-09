@@ -109,30 +109,89 @@ end
 
 endmodule
 
+
 /* Immediate Generation Unit Module
 
-Note: Selects a 12-bit field for LOAD, STORE, and BRANCH IF EQUAL that is
-sign-extended into a 64-bit result as output.
+ * Selects a 12-bit field for LOAD, STORE, and BRANCH IF EQUAL that is
+ * sign-extended into a 64-bit result as output.
 
-LW  = {offset[11:0],               src1[4:0], 3'b000, dest[4:0],      7'b0100000}
-SW  = {offset[11:5],    src2[4:0], src1[4:0], 3'b000, dest[4:0],      7'b1000000}
-BEQ = {offset[12,10:5], src2[4:0], src1[4:0], 3'b000, offset[4:1,11], 7'b1100000}
-*/
+ * LW  = {offset[11:0],               src1[4:0], 3'b000, dest[4:0],      7'b0100000}
+ * SW  = {offset[11:5],    src2[4:0], src1[4:0], 3'b000, dest[4:0],      7'b1000000}
+ * BEQ = {offset[12,10:5], src2[4:0], src1[4:0], 3'b000, offset[4:1,11], 7'b1100000}
+ */
 module ImmGen(in, imm_out);
     input   [31:0] in;    // 32-bit Instruction input
     output  [63:0] imm_out;     // Sign extended 64-bit immediate 
 
     case(in[6:0])
-        7'b0100000: imm_out = {in[31], 20'd0, in[30:20]}; // LW
-        7'b1000000: imm_out = {in[31:25], 20'd0, in[] }; // SW
-        7'b1100000: imm_out = {in[31], zeros, in[30:25], in[7], in}; // BEQ
-        default: imm_out = 
+        7'b0100000: imm_out = { {52{in[31]}}, in[31:20] }; // LW
+        7'b1000000: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // SW
+        7'b1100000: imm_out = { {52{in[31]}}, in[31:25], in[7], in[11:8] }; // BEQ
+        default: imm_out = 32'b0;
     endcase
-
 endmodule
 
+/* Takes output of ImmGen, shifts by 1, and add to program counter */
+module ShiftLeftandAdd(pc64, imm64, out64);
+    input [63:0] pc64;
+    input [63:0] imm64; // Gets shifted left by 1 and 0 fills in lsb.
+    output [63:0] out64;
+    wire [64:0] shift_output;
+    assign shift_output = {imm64, 1'b0}; // Shift imm64 by 1 and fill lsb with 0.
+    assign out64 = pc64 + shift_output[63:0]; // Adds shifted value to pc64.
+endmodule
+
+/* ALU Control Module
+ *
+ * Provides ALU with the right operation by judging 
+ * the inputs from the Control Unit and Instructions.
+ */
+module ALUcontrol(i, ALUop, opout);
+    input [31:0] i; // 32-bit instruction input 
+    input [1:0] ALUop; // 2-bit ALUop from the Control Module
+    output [3:0] opout; // 4-bit output towards the ALU
+    // opout: AND = 0000, OR  = 0001, add = 0010, sub = 0110
+    wire [6:0] funct7;
+    wire [2:0] funct3;
+    assign funct7 = i[31:25]; // R-Type Instruction format
+    assign funct3 = i[14:12];
+
+    case({ALUop, funct7, funct3})
+        12'b00xxxxxxxxxx: opout = 4'b0010;
+        12'bx1xxxxxxxxxx: opout = 4'b0110;
+        12'b1x0000000000: opout = 4'b0010;
+        12'b1x0100000000: opout = 4'b0110;
+        12'b1x0000000111: opout = 4'b0000;
+        12'b1x0000000110: opout = 4'b0001;
+        default: opout = 4'bxxxx;
+    endcase
+endmodule
+
+// Control unit for the datapath (OPCODE --> Control Signals)
+module Control(i);
+    input [31:0] i;
+    output [1:0] ALUop;
+    output Branch;
+    output MemRead;
+    output MemtoReg;
+    output MemWrite;
+    output ALUsrc;
+    output RegWrite;
+
+    wire [7:0] output = {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop};
+
+    case(i[6:0])
+        7'b0110011: output = 8'b00100010; // R-format
+        7'b0000011: output = 8'b11110000; // ld
+        7'b0100011: output = 8'b1x001000; // sd
+        7'b1100011: output = 8'b0x000101; // beq
+        default: output = {8{1'bx}};
+    endcase
+endmodule
+
+
 //register with load enable
-module vDFFE(clk, en, in, out) ;
+module vDFFE(clk, en, in, out);
   parameter n = 1;  // width
   input clk, en ;
   input [n-1:0] in ;
@@ -145,12 +204,12 @@ module vDFFE(clk, en, in, out) ;
     out = next_out;  
 endmodule
 
-//16 bit mux
-module MUX16bit(in0, in1, sel, out);
-    input [15:0] in0;
-    input [15:0] in1;
+/* 64 bit mux */
+module MUX64(in0, in1, sel, out);
+    input [63:0] in0;
+    input [63:0] in1;
     input sel;
-    output [15:0] out;
+    output [63:0] out;
 
     assign out = sel? in1 : in0;
 endmodule
