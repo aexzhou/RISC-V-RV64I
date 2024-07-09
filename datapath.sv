@@ -107,9 +107,29 @@ always_comb begin
         shift_ctrl_out = shift;
 end
 
-
 endmodule
 
+/* Immediate Generation Unit Module
+
+Note: Selects a 12-bit field for LOAD, STORE, and BRANCH IF EQUAL that is
+sign-extended into a 64-bit result as output.
+
+LW  = {offset[11:0],               src1[4:0], 3'b000, dest[4:0],      7'b0100000}
+SW  = {offset[11:5],    src2[4:0], src1[4:0], 3'b000, dest[4:0],      7'b1000000}
+BEQ = {offset[12,10:5], src2[4:0], src1[4:0], 3'b000, offset[4:1,11], 7'b1100000}
+*/
+module ImmGen(in, imm_out);
+    input   [31:0] in;    // 32-bit Instruction input
+    output  [63:0] imm_out;     // Sign extended 64-bit immediate 
+
+    case(in[6:0])
+        7'b0100000: imm_out = {in[31], 20'd0, in[30:20]};
+        7'b1000000: imm_out = {in[31:25], 20'd0, in[] }
+        7'b1100000: imm_out = {in[31], zeros, in[30:25], in[7], in}
+        default: imm_out = 
+    endcase
+
+endmodule
 
 //register with load enable
 module vDFFE(clk, en, in, out) ;
@@ -154,6 +174,4 @@ always @(*) begin
     default: out = 16'bxxxxxxxxxxxxxxxx;
     endcase
 end
-
-
 endmodule
