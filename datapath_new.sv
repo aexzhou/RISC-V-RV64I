@@ -1,5 +1,6 @@
 module datapath(
     input clk
+    input [31:0] IM_out;
 );
 
 // Module instantiation/connections
@@ -16,11 +17,11 @@ vDFFE #(64) PC(
     .out(pc_out)
 );
 
-wire [31:0] IM_out;
-InstructionMemory IM(
-    .address(pc_out),
-    .instruction(IM_out)
-);
+// wire [31:0] IM_out;
+// InstructionMemory IM(
+//     .address(pc_out),
+//     .instruction(IM_out)
+// );
 
 wire read_reg1 = IM_out[19:15];
 wire read_reg2 = IM_out[24:20];
@@ -100,7 +101,7 @@ module InstructionMemory (
     reg [31:0] memory [0:1023];
 
     /*
-    // Initialize the instruction memory with some values (optional)
+    // Initialize the instruction memory with some values
     initial begin
         $readmemh("instructions.mem", memory);  // Load instructions from a file
     end
