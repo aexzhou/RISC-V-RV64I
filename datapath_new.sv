@@ -91,14 +91,14 @@ MUX64 MUX64_PC(
 
 
 
-// Instruction memory module will read a 64bit address (PC) and output the corresponding instruction (RAM)
-module InstructionMemory (
-    input wire [63:0] address,     // Address input
-    output reg [31:0] instruction  // Instruction output
-);
+// // Instruction memory module will read a 64bit address (PC) and output the corresponding instruction (RAM)
+// module InstructionMemory (
+//     input wire [63:0] address,     // Address input
+//     output reg [31:0] instruction  // Instruction output
+// );
 
-    // Instruction memory array (stores 1024 32-bit instructions)
-    reg [31:0] memory [0:1023];
+//     // Instruction memory array (stores 1024 32-bit instructions)
+//     reg [31:0] memory [0:1023];
 
     /*
     // Initialize the instruction memory with some values
@@ -107,11 +107,11 @@ module InstructionMemory (
     end
     */
 
-    // Output the instruction at the given address
-    always @(address) begin
-        instruction = memory[address[63:2]];    // Address is byte-aligned, so divide by 4
-    end
-endmodule
+//     // Output the instruction at the given address
+//     always @(address) begin
+//         instruction = memory[address[63:2]];    // Address is byte-aligned, so divide by 4
+//     end
+// endmodule
 
 // The data memory module supports both read and write operations
 // It has separate input ports for address, data to be written, and control signals for reading and writing
