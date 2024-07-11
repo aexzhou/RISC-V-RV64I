@@ -24,6 +24,7 @@ reg [2:0] Z; //vdffed to Z_out
 reg [1:0] shift_ctrl_out;
 
 
+
 // Module instantiation
 regfile REGFILE(data_in, writenum, write, readnum, clk, data_out); //(1)
 ALU ALU(Ain, Bin, ALUop, out, Z); //(2)
