@@ -7,14 +7,14 @@
 // 10   - loads
 module datapath(
     //Inputs
-    input [15:0] mdata, sximm8, sximm5,
-    input [7:0] PC,
-    input [2:0] writenum, readnum,
-    input [1:0] shift, ALUop, vsel,
-    input clk, write, asel, bsel, loada, loadb, loadc, loads,
-    output reg [15:0] datapath_out, //this is C
-    output reg [2:0] Z_out,
-    input shift_ctrl
+    //input [15:0] mdata, sximm8, sximm5,
+    //input [7:0] PC,
+    //input [2:0] writenum, readnum,
+    //input [1:0] shift, ALUop, vsel,
+    //input clk, write, asel, bsel, loada, loadb, loadc, loads,
+    //output reg [15:0] datapath_out, //this is C
+    //output reg [2:0] Z_out,
+    //input shift_ctrl
 );
 // Internal registers
 reg [15:0] data_in, data_out, in, out, sout, Ain, Bin;
