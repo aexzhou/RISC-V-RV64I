@@ -6,19 +6,19 @@
 
 
 
-module ALU(Ain, Bin, ALUop, out, Z);
-    input [31:0] Ain, Bin;
+module ALU(in1, in2, ALUop, out, Z);
+    input [63:0] in1, in2;
     input [3:0] ALUop;
-    output reg [31:0] out;
-    output reg [2:0] Z; // Zero flag
+    output reg [63:0] out;
+    output reg Z; // Zero flag
 
     // //ADDSUB connection
     // wire [31:0] s;
     // wire ovf;
 
     // AddSub addsub(
-    //     .a(Ain),
-    //     .b(Bin),
+    //     .a(in1),
+    //     .b(in2),
     //     .sub(ALUop[2]),
     //     .s(s),
     //     .ovf(ovf)
@@ -26,13 +26,13 @@ module ALU(Ain, Bin, ALUop, out, Z);
 
     always @(*) begin
         case(ALUop)
-            4'b0000: out = Ain && Bin;
-            4'b0001: out = Ain || Bin;
+            4'b0000: out = in1 && in2;
+            4'b0001: out = in1 || in2;
             4'b0010: begin
-                out = Ain + Bin;
+                out = in1 + in2;
             end
             4'b0110: begin
-                out = Ain - Bin;
+                out = in1 - in2;
             end
             default: out = {32{1'bx}};
         endcase

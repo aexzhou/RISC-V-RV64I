@@ -1,6 +1,6 @@
 module datapath(
-    input clk
-    input [31:0] IM_out;
+    input clk,
+    input [31:0] instruction
 );
 
 // Module instantiation/connections
@@ -10,6 +10,7 @@ wire pc_enable;
 wire [63:0] pc_in;
 wire [63:0] pc_out;
 assign pc_enable = 1'b1;
+
 vDFFE #(64) PC(
     .clk(clk),
     .en(pc_enable),
@@ -17,28 +18,44 @@ vDFFE #(64) PC(
     .out(pc_out)
 );
 
-// wire [31:0] IM_out;
+// wire [31:0] instruction;
 // InstructionMemory IM(
 //     .address(pc_out),
-//     .instruction(IM_out)
+//     .instruction(instruction)
 // );
 
-wire read_reg1 = IM_out[19:15];
-wire read_reg2 = IM_out[24:20];
-wire write_reg = IM_out[11:7];
-wire opcode = IM_out[6:0];
-wire [63:0] read_data1;
-wire [63:0] read_data2;
-regfile REGFILE(write_data,write_reg,RegWrite,read_reg1,read_reg2,clk,data_out1,data_out2);
+reg [4:0] read_reg1 = instruction[19:15];
+reg [4:0] read_reg2 = instruction[24:20];
+reg [4:0] write_reg = instruction[11:7];
+reg [63:0] read_data1, read_data2;
+reg [63:0] imm_out;
+reg [63:0] ALU_in2;
+reg Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite;
+reg [1:0] ALUop;
+reg [63:0] ALU_out;
+reg Z;                            //WARNING: Z IS 2 BIT IN ALU, BUT TEXTBOOK USES 1 BIT FOR ZERO FLAG, UPDATE REQUIRED
+reg [3:0] ALU_control_out;
+reg [63:0] DM_out;
+reg [63:0] write_data;
+reg [63:0] SLA_out;
+reg [63:0] PC_plus_4;
+reg MUX64_PC_sel;
 
-wire [1:0] ALUop;
-wire Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite;
-Control CONTROL(opcode, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
+regfile REGFILE(
+    .write_data(write_data),
+    .writenum(write_reg),
+    .write(RegWrite),
+    .readnum1(read_reg1),
+    .readnum2(read_reg2),
+    .clk(clk),
+    .data_out1(read_data1),
+    .data_out2(read_data2)
+);
 
-wire [63:0] imm_out;
-ImmGen IMMGEN(IM_out, imm_out);
+Control CONTROL(instruction, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
 
-wire [63:0] ALU_in2;
+ImmGen IMMGEN(instruction, imm_out);
+
 MUX64 MUX64_REG_ALU(
     .in0(read_data2),
     .in1(imm_out),
@@ -46,14 +63,10 @@ MUX64 MUX64_REG_ALU(
     .out(ALU_in2)
 );
 
-wire [63:0] ALU_out;
-wire Z;                            //WARNING: Z IS 2 BIT IN ALU, BUT TEXTBOOK USES 1 BIT FOR ZERO FLAG, UPDATE REQUIRED
 ALU ALU(read_data1, ALU_in2, ALU_control_out, ALU_out, Z);
 
-wire [3:0] ALU_control_out;
-ALUcontrol ALUCONTROL(IM_out, ALUop, ALU_control_out);
+ALUcontrol ALUCONTROL(instruction, ALUop, ALU_control_out);
 
-wire [63:0] DM_out;
 DataMemory DM(
     .clk(clk),
     .address(ALU_out),
@@ -63,22 +76,12 @@ DataMemory DM(
     .read_data(DM_out)
 );
 
-wire [63:0] write_data;
 MUX64 MUX64_DM(
     .in0(ALU_out),
     .in1(DM_out),
     .sel(MemtoReg),
     .out(ALU_in2)
 );
-
-wire [63:0] SLA_out;
-ShiftLeftandAdd SLA(pc_out, imm_out, SLA_out);
-
-wire [63:0] PC_plus_4;
-assign PC_plus_4 = pc_out + 4;
-
-wire MUX64_PC_sel;
-assign MUX64_PC_sel = Branch & Z[0];
 
 MUX64 MUX64_PC(
     .in0(PC_plus_4),
@@ -87,9 +90,13 @@ MUX64 MUX64_PC(
     .out(pc_in)
 );
 
+ShiftLeftandAdd SLA(pc_out, imm_out, SLA_out);
 
+assign PC_plus_4 = pc_out + 4;
 
+assign MUX64_PC_sel = Branch & Z;
 
+endmodule
 
 // // Instruction memory module will read a 64bit address (PC) and output the corresponding instruction (RAM)
 // module InstructionMemory (
@@ -151,16 +158,40 @@ endmodule
  * SW  = {offset[11:5],    src2[4:0], src1[4:0], 3'b000, dest[4:0],      7'b1000000}
  * BEQ = {offset[12,10:5], src2[4:0], src1[4:0], 3'b000, offset[4:1,11], 7'b1100000}
  */
-module ImmGen(in, imm_out);
-    input   [31:0] in;    // 32-bit Instruction input
-    output  [63:0] imm_out;     // Sign extended 64-bit immediate 
 
-    case(in[6:0])
-        7'b0100000: imm_out = { {52{in[31]}}, in[31:20] }; // LW
-        7'b1000000: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // SW
-        7'b1100000: imm_out = { {52{in[31]}}, in[31:25], in[7], in[11:8] }; // BEQ
-        default: imm_out = 32'b0;
-    endcase
+/* Instruction Formats for RISC-V Architecture
+ *
+ * R-Type Instructions                                      I-Type Instructions
+ * |31      25|24  20|19  15|14  12|11   7|6      0|        |31          20|19  15|14  12|11   7|6      0|
+ * |  funct7  |  rs2 |  rs1 |func3 |  rd  | opcode |        |    imm[11:0] |  rs1 |func3 |  rd  | opcode |
+ * Uses: R-R ops (add, sub, sll ...)                        Uses: Imm ops (addi, lw, srai ...)
+ *
+ * S-Type Instructions                                      B-Type Instructions
+ * |31      25|24  20|19  15|14  12|11   7|6      0|        |31    25|24  20|19  15|14  12|11      7|6     0|
+ * | imm[11:5]|  rs2 |  rs1 |func3 |imm[4:0]|opcode|        |imm[12| |  rs2 |  rs1 |func3 |imm[4:1| | opcode|
+ * Uses: Store ops (sw, sh ...)                             |  10:5] |      |      |      |     11] |
+ *                                                          Uses: Branch ops (beq, bne ...)
+ *      
+ * U-Type Instructions                                      J-Type Instructions
+ * |31              12|11   7|6      0|                     |31             12|11   7|6      0|
+ * |      imm[31:12]  |  rd  | opcode |                     |     imm[20|10:1]|  rd  | opcode |
+ * Uses: Long jumps and large constants (lui, auipc ...)    |       |11|19:12]|      |        |
+ *                                                          Uses: Jump operations (jal ...)
+ */
+module ImmGen(in, imm_out);
+    input       [31:0] in;    // 32-bit Instruction input
+    output reg  [63:0] imm_out;     // Sign extended 64-bit immediate 
+
+    always_comb begin
+        case(in[6:0])
+            7'b1101111: imm_out = { {51{in[31]}}, in[31], in[19:12], in[20], in[30:21], 1'b0}; // J-Type
+            7'b1100111: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type
+            7'b0100011: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // S-type
+            7'b1100011: imm_out = { {51{in[31]}}, in[31], in[7], in[30:25], in[11:7], 1'b0 }; // B-Type
+            7'b0110111: imm_out = { in[31], in[30:20], in[19:12], 12'b0}; // U-Type
+            default: imm_out = 64'b0;
+        endcase
+    end
 endmodule
 
 /* Takes output of ImmGen, shifts by 1, and add to program counter */
@@ -181,45 +212,48 @@ endmodule
 module ALUcontrol(i, ALUop, opout);
     input [31:0] i; // 32-bit instruction input 
     input [1:0] ALUop; // 2-bit ALUop from the Control Module
-    output [3:0] opout; // 4-bit output towards the ALU
+    output reg [3:0] opout; // 4-bit output towards the ALU
     // opout: AND = 0000, OR  = 0001, add = 0010, sub = 0110
     wire [6:0] funct7;
     wire [2:0] funct3;
     assign funct7 = i[31:25]; // R-Type Instruction format
     assign funct3 = i[14:12];
 
-    case({ALUop, funct7, funct3})
-        12'b00xxxxxxxxxx: opout = 4'b0010;
-        12'bx1xxxxxxxxxx: opout = 4'b0110;
-        12'b1x0000000000: opout = 4'b0010;
-        12'b1x0100000000: opout = 4'b0110;
-        12'b1x0000000111: opout = 4'b0000;
-        12'b1x0000000110: opout = 4'b0001;
-        default: opout = 4'bxxxx;
-    endcase
+    always_comb begin
+        case({ALUop, funct7, funct3})
+            12'b00xxxxxxxxxx: opout = 4'b0010; 
+            12'bx1xxxxxxxxxx: opout = 4'b0110;
+            12'b1x0000000000: opout = 4'b0010;
+            12'b1x0100000000: opout = 4'b0110;
+            12'b1x0000000111: opout = 4'b0000;
+            12'b1x0000000110: opout = 4'b0001;
+            default: opout = 4'bxxxx;
+        endcase
+    end
 endmodule
 
 // Control unit for the datapath (OPCODE --> Control Signals)
 module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
     input [31:0] i;
-    output [1:0] ALUop;
-    output Branch;
-    output MemRead;
-    output MemtoReg;
-    output MemWrite;
-    output ALUsrc;
-    output RegWrite;
-
-    wire [7:0] output = {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop};
-
-    case(i[6:0])
-        7'b0110011: output = 8'b00100010; // R-format
-        7'b0000011: output = 8'b11110000; // ld
-        7'b0100011: output = 8'b1x001000; // sd
-        7'b1100011: output = 8'b0x000101; // beq
-        default: output = {8{1'bx}};
-    endcase
-endmodule
+    output reg [1:0] ALUop;
+    output reg Branch;
+    output reg MemRead;
+    output reg MemtoReg;
+    output reg MemWrite;
+    output reg ALUsrc;
+    output reg RegWrite;
+    reg [7:0] cout = {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop};
+    
+    always_comb begin
+        case(i[6:0])
+            7'b0110011: cout = 8'b00100010; // R-format
+            7'b0000011: cout = 8'b11110000; // ld
+            7'b0100011: cout = 8'b1x001000; // sd
+            7'b1100011: cout = 8'b0x000101; // beq
+            default: cout = {8{1'bx}};
+        endcase
+    end
+endmodule   
 
 //register with load enable
 module vDFFE(clk, en, in, out);
@@ -243,6 +277,4 @@ module MUX64(in0, in1, sel, out);
     output [63:0] out;
 
     assign out = sel? in1 : in0;
-endmodule
-
 endmodule
