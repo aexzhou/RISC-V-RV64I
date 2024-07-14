@@ -4,6 +4,7 @@ module datapath_tb;
 // Inputs to Datapath
 reg [31:0] idata; // 32-bit Instruction
 reg clk;
+reg rst;
 // Error Detection
 reg err = 1'b0; 
 
@@ -15,6 +16,7 @@ reg [63:0] pc_ref = 64'd0;
 // Instantiation as an MUT Object
 datapath MUT (
     .clk(clk),
+    .rst(rst),
     .instruction(idata)
 );
 
@@ -26,6 +28,7 @@ end
 
 task testset;
     // MUT.pc_out = 0;
+    rst = 1;
     pc_ref = 0; 
     test_num = test_num + 1; // Increments the test number
     #10;
