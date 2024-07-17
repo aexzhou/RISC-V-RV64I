@@ -1,5 +1,5 @@
 module datapath(
-    input clk,
+    input clk, rst
     input [31:0] instruction
 );
 
@@ -7,9 +7,9 @@ module datapath(
 
 //Program Counter Register (holds the address of the next instruction to be executed)
 wire pc_enable;
+assign pc_enable = 1'b1; // PC always enabled
 wire [63:0] pc_in;
 wire [63:0] pc_out;
-assign pc_enable = 1'b1;
 
 vDFFE #(64) PC(
     .clk(clk),
@@ -18,15 +18,28 @@ vDFFE #(64) PC(
     .out(pc_out)
 );
 
+// module PC(clk, en, in, out);
+//   parameter n = 1;  // width
+//   input clk, en ;
+//   input [n-1:0] in ;
+//   output reg [n-1:0] out ;
+//   wire [n-1:0] next_out ;
+
+//   assign next_out = en ? in : out;
+
+//   always @(posedge clk)
+//     out = next_out;  
+// endmodule
+
 // wire [31:0] instruction;
 // InstructionMemory IM(
 //     .address(pc_out),
 //     .instruction(instruction)
 // );
 
-reg [4:0] read_reg1 = instruction[19:15];
-reg [4:0] read_reg2 = instruction[24:20];
-reg [4:0] write_reg = instruction[11:7];
+// reg [4:0] read_reg1 = instruction[19:15];
+// reg [4:0] read_reg2 = instruction[24:20];
+// reg [4:0] write_reg = instruction[11:7];
 reg [63:0] read_data1, read_data2;
 reg [63:0] imm_out;
 reg [63:0] ALU_in2;
@@ -42,11 +55,9 @@ reg [63:0] PC_plus_4;
 reg MUX64_PC_sel;
 
 regfile REGFILE(
+    .i(instruction),
     .write_data(write_data),
-    .writenum(write_reg),
     .write(RegWrite),
-    .readnum1(read_reg1),
-    .readnum2(read_reg2),
     .clk(clk),
     .data_out1(read_data1),
     .data_out2(read_data2)
@@ -80,7 +91,7 @@ MUX64 MUX64_DM(
     .in0(ALU_out),
     .in1(DM_out),
     .sel(MemtoReg),
-    .out(ALU_in2)
+    .out(write_data) 
 );
 
 MUX64 MUX64_PC(
@@ -185,7 +196,9 @@ module ImmGen(in, imm_out);
     always_comb begin
         case(in[6:0])
             7'b1101111: imm_out = { {51{in[31]}}, in[31], in[19:12], in[20], in[30:21], 1'b0}; // J-Type
-            7'b1100111: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type
+            7'b1100111: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type JALR
+            7'b0010011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type imm
+            7'b0000011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type load instructions
             7'b0100011: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // S-type
             7'b1100011: imm_out = { {51{in[31]}}, in[31], in[7], in[30:25], in[11:7], 1'b0 }; // B-Type
             7'b0110111: imm_out = { in[31], in[30:20], in[19:12], 12'b0}; // U-Type
@@ -207,30 +220,43 @@ endmodule
 /* ALU Control Module
  *
  * Provides ALU with the right operation by judging 
- * the inputs from the Control Unit and Instructions.
+ * the inputs from the Control Unit and Instructions. 
+ * This is useful since it lessens the load on the Control Module
+ * and reducing its latency thus decreasing clk cycle time. 
  */
 module ALUcontrol(i, ALUop, opout);
+/* Inputs towards the ALU:
+ * 4'b0000: AND
+ * 4'b0001: OR
+ * 4'b0010: ADD
+ * 4'b0110: SUB
+ * 4'b0111: SLT (Set on Less Than): will output 1 if A < B
+ * 4'b1100: NOR
+ */
     input [31:0] i; // 32-bit instruction input 
     input [1:0] ALUop; // 2-bit ALUop from the Control Module
     output reg [3:0] opout; // 4-bit output towards the ALU
-    // opout: AND = 0000, OR  = 0001, add = 0010, sub = 0110
     wire [6:0] funct7;
     wire [2:0] funct3;
     assign funct7 = i[31:25]; // R-Type Instruction format
     assign funct3 = i[14:12];
 
     always_comb begin
-        case({ALUop, funct7, funct3})
-            12'b00xxxxxxxxxx: opout = 4'b0010; 
-            12'bx1xxxxxxxxxx: opout = 4'b0110;
-            12'b1x0000000000: opout = 4'b0010;
-            12'b1x0100000000: opout = 4'b0110;
-            12'b1x0000000111: opout = 4'b0000;
-            12'b1x0000000110: opout = 4'b0001;
+        casex({ALUop, funct7, funct3})
+            12'b00xxxxxxx000: opout = 4'b0010; // addi
+            12'b00xxxxxxx111: opout = 4'b0000; // andi
+            12'b00xxxxxxx110: opout = 4'b0001; // ori
+            12'b00xxxxxxxxxx: opout = 4'b0010; // add
+            12'bx1xxxxxxxxxx: opout = 4'b0110; // sub
+            12'b1x0000000000: opout = 4'b0010; // add(r)
+            12'b1x0100000000: opout = 4'b0110; // sub
+            12'b1x0000000111: opout = 4'b0000; // and
+            12'b1x0000000110: opout = 4'b0001; // or
             default: opout = 4'bxxxx;
         endcase
     end
 endmodule
+
 
 // Control unit for the datapath (OPCODE --> Control Signals)
 module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
@@ -242,15 +268,15 @@ module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
     output reg MemWrite;
     output reg ALUsrc;
     output reg RegWrite;
-    reg [7:0] cout = {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop};
     
     always_comb begin
         case(i[6:0])
-            7'b0110011: cout = 8'b00100010; // R-format
-            7'b0000011: cout = 8'b11110000; // ld
-            7'b0100011: cout = 8'b1x001000; // sd
-            7'b1100011: cout = 8'b0x000101; // beq
-            default: cout = {8{1'bx}};
+            7'b0010011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // I-type
+            7'b0110011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b00100010; // R-type
+            7'b0000011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b11110000; // ld (I-type LOAD)
+            7'b0100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b1x001000; // sd (S-type)
+            7'b1100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b0x000101; // beq (B-type)
+            default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = {8{1'bx}};
         endcase
     end
 endmodule   
