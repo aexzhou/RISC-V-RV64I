@@ -26,12 +26,20 @@ initial begin
     forever #5 clk = ~clk; // Delay = 10 for full clk cycle
 end
 
+// Terminator
+initial begin
+    #500;
+    $display("Ending Testbench...");
+    $stop;
+end
+
 task testset;
     // MUT.pc_out = 0;
     rst = 1;
     pc_ref = 0; 
     test_num = test_num + 1; // Increments the test number
     #10;
+    rst = 0;
 endtask
 
 /* Datapath Testbench */
@@ -67,7 +75,7 @@ initial begin
     #10;
     idata = 32'b00000000011000000000000100010011; pc_ref = pc_ref + 4;
     #10;
-    idata = 32'b00000000001000001000000110110011; pc_ref = pc_ref + 4;
+    idata = 32'b00000000001000001000000110110011; 
     #10;
 
     data_ref = 64'd11;
@@ -93,10 +101,10 @@ initial begin
     #10;
     idata = 32'b00000000010100000000001110010011; pc_ref = pc_ref + 4;
     #10;
-    idata = 32'b01000000011000111000001000110011; pc_ref = pc_ref + 4;
+    idata = 32'b01000000011000111000001000110011; 
     #10;
 
-    data_ref = 64'd10;
+    data_ref = -64'd10;
     if(MUT.REGFILE.X[4] !== data_ref) begin
         $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[4]); 
         err = 1'b1; $stop; 
@@ -110,16 +118,16 @@ initial begin
 
 /* Test 4:
  *
- * addi x6, x0, 0x0F
+ * addi x6, x0, 0x0F 
  * addi x7, x0, 0x55
  * and x8, x7, x6
  */
     testset();
-    idata = 32'b00000000111100000000000110010011; pc_ref = pc_ref + 4;
+    idata = 32'h00f00313; pc_ref = pc_ref + 4;
     #10;
-    idata = 32'b00000101010100000000000110010011; pc_ref = pc_ref + 4;
+    idata = 32'h05500393; pc_ref = pc_ref + 4;
     #10;
-    idata = 32'b01000000011000111000001000110011; pc_ref = pc_ref + 4;
+    idata = 32'h0063f433; 
     #10;
 
     data_ref = 64'h5;
@@ -141,11 +149,11 @@ initial begin
  * or x20, x21, x20
  */
     testset();
-    idata = 32'b00000000111100000000001100010011; pc_ref = pc_ref + 4;
+    idata = 32'h0f000a13; pc_ref = pc_ref + 4; 
     #10;
-    idata = 32'b00000000010100000000001110010011; pc_ref = pc_ref + 4;
+    idata = 32'h05500a93; pc_ref = pc_ref + 4;
     #10;
-    idata = 32'b01000000011000111000001000110011; pc_ref = pc_ref + 4;
+    idata = 32'h014aea33; 
     #10;
 
     data_ref = 64'hf5;
@@ -159,6 +167,7 @@ initial begin
         $error("TEST %d PC DID NOT INCREMENT, expected: %d, got: %d",test_num,pc_ref,MUT.pc_out); 
         err = 1'b1; $stop; 
     end
+
 
 
 end

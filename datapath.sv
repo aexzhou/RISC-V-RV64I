@@ -1,41 +1,9 @@
 module datapath(
-    input clk, rst
+    input clk, rst,
     input [31:0] instruction
 );
 
 // Module instantiation/connections
-
-//Program Counter Register (holds the address of the next instruction to be executed)
-wire pc_enable;
-assign pc_enable = 1'b1; // PC always enabled
-wire [63:0] pc_in;
-wire [63:0] pc_out;
-
-vDFFE #(64) PC(
-    .clk(clk),
-    .en(pc_enable),
-    .in(pc_in),
-    .out(pc_out)
-);
-
-// module PC(clk, en, in, out);
-//   parameter n = 1;  // width
-//   input clk, en ;
-//   input [n-1:0] in ;
-//   output reg [n-1:0] out ;
-//   wire [n-1:0] next_out ;
-
-//   assign next_out = en ? in : out;
-
-//   always @(posedge clk)
-//     out = next_out;  
-// endmodule
-
-// wire [31:0] instruction;
-// InstructionMemory IM(
-//     .address(pc_out),
-//     .instruction(instruction)
-// );
 
 // reg [4:0] read_reg1 = instruction[19:15];
 // reg [4:0] read_reg2 = instruction[24:20];
@@ -43,16 +11,32 @@ vDFFE #(64) PC(
 reg [63:0] read_data1, read_data2;
 reg [63:0] imm_out;
 reg [63:0] ALU_in2;
-reg Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite;
+reg Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite; // Control Module Outputs
 reg [1:0] ALUop;
 reg [63:0] ALU_out;
-reg Z;                            //WARNING: Z IS 2 BIT IN ALU, BUT TEXTBOOK USES 1 BIT FOR ZERO FLAG, UPDATE REQUIRED
+reg zflag;                            //WARNING: zflag IS 2 BIT IN ALU, BUT TEXTBOOK USES 1 BIT FOR ZERO FLAG, UPDATE REQUIRED
 reg [3:0] ALU_control_out;
 reg [63:0] DM_out;
 reg [63:0] write_data;
 reg [63:0] SLA_out;
-reg [63:0] PC_plus_4;
+//Program Counter Register (holds the address of the next instruction to be executed)
+reg [63:0] pc_in = 64'd0;
+reg [63:0] pc_out;
+reg [63:0] pc_incremented;
 reg MUX64_PC_sel;
+
+/* Program Counter Logic */
+assign PC_plus_4 = pc_out + 4;
+assign MUX64_PC_sel = Branch & zflag;
+always @(posedge clk) pc_incremented = pc_out + 4; // 4 is added to increment PC
+PCreg PC(clk, rst, pc_in, pc_out); // The actual PC Register
+ShiftLeftandAdd SLA(pc_out, imm_out, SLA_out);
+// PC MUX that drives pc_in
+always_comb begin
+    if(~rst) pc_in = MUX64_PC_sel? SLA_out: pc_incremented;
+    else pc_in = 64'd0;
+end
+
 
 regfile REGFILE(
     .i(instruction),
@@ -74,7 +58,7 @@ MUX64 MUX64_REG_ALU(
     .out(ALU_in2)
 );
 
-ALU ALU(read_data1, ALU_in2, ALU_control_out, ALU_out, Z);
+ALU ALU(read_data1, ALU_in2, ALU_control_out, ALU_out, zflag);
 
 ALUcontrol ALUCONTROL(instruction, ALUop, ALU_control_out);
 
@@ -93,19 +77,6 @@ MUX64 MUX64_DM(
     .sel(MemtoReg),
     .out(write_data) 
 );
-
-MUX64 MUX64_PC(
-    .in0(PC_plus_4),
-    .in1(SLA_out),
-    .sel(MUX64_PC_SEL),
-    .out(pc_in)
-);
-
-ShiftLeftandAdd SLA(pc_out, imm_out, SLA_out);
-
-assign PC_plus_4 = pc_out + 4;
-
-assign MUX64_PC_sel = Branch & Z;
 
 endmodule
 
@@ -303,4 +274,24 @@ module MUX64(in0, in1, sel, out);
     output [63:0] out;
 
     assign out = sel? in1 : in0;
+endmodule
+
+/* PC Special Register */
+module PCreg(clk, rst, in, out);
+    input clk, rst;
+    input [63:0] in;
+    output reg [63:0] out = 64'd0; // 0 Initialized
+    always @(posedge clk, rst) begin
+        if(~rst)
+            out = in;
+        else 
+            out = 64'd0;
+    end 
+endmodule
+
+module Add4PC(in, out);
+    input [63:0] in;
+    output reg [63:0] out;
+    always_comb
+        out = in + 4;
 endmodule
