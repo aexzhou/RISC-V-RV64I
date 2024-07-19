@@ -43,6 +43,7 @@ regfile REGFILE(
     .write_data(write_data),
     .write(RegWrite),
     .clk(clk),
+    .rst(rst),
     .data_out1(read_data1),
     .data_out2(read_data2)
 );
