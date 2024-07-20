@@ -36,11 +36,11 @@ module regfile(i,write_data,write,clk,rst,data_out1,data_out2);
   // READING LOGIC
   always @(*)begin 
     if(readR1 < 32 && readR2 < 32) begin
-      data_out1 = X[readR1]; // data_out recieves data stored in the <readnum>-th register of the register array.
-      data_out2 = X[readR2];
+      data_out1 <= X[readR1]; // data_out recieves data stored in the <readnum>-th register of the register array.
+      data_out2 <= X[readR2];
     end else begin
-      data_out1 = 64'b0; // data_out recieves all 0s if otherwise. 
-      data_out2 = 64'b0;
+      data_out1 <= 64'b0; // data_out recieves all 0s if otherwise. 
+      data_out2 <= 64'b0;
     end 
   end
 endmodule
