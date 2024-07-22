@@ -325,7 +325,36 @@ module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegW
     input EXM_RegWrite, MWB_RegWrite;
     output ForwardA, ForwardB;
     
-    // Forwardingunit TBCompleted
+    //Forwarding Logic and driving the forwardA forwardB signals
+
+    // Forward from EX|M pipeline register
+    if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs1)) begin
+        ForwardA = 2'b10; // Forward from EXM
+    end 
+    else if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs2)) begin
+        ForwardB = 2'b10; // Forward from MWB
+    end
+    // Forward from M|WB pipeline register
+    else if (MWB_RegWrite
+            and (MWB_Rd != 0)
+            and not(EXM_RegWrite && (EXM_Rd != 0)
+            and (EXM_Rd = IDEX_Rs1))
+            and (MWB_Rd = IDEX_Rs1)) begin 
+        ForwardA = 2'b01
+    end
+
+    else if (MWB_RegWrite
+            and (MWB_Rd != 0)
+            and not(EXM_RegWrite && (EXM_Rd != 0)
+            and (EXM_Rd = IDEX_Rs2))
+            and (MWB_Rd = IDEX_Rs2)) begin 
+        ForwardB = 2'b01
+    end
+    else begin
+        // No forwarding, the ALU operands come from the register file
+        ForwardA = 2'b00;
+        ForwardB = 2'b00;
+    end
 
 endmodule
     

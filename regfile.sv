@@ -1,5 +1,5 @@
 /*
- * 32 bit RISC-V 32I Register Module
+ * 64 bit RISC-V 32I Register Module
  */
 
 // Each register is 64 bits
