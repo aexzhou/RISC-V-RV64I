@@ -1,136 +1,172 @@
 module datapath(
-    input clk, rst,
-    input [31:0] instruction
+    input clk, rst
 );
 
-// Module instantiation/connections
+// IF|ID Pipeline Registers
+reg [63:0] IFID_pc;
+reg [32:0] IFID_i;
+reg        RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc; 
+reg [1:0]  ALUop;                                            
 
-// reg [4:0] read_reg1 = instruction[19:15];
-// reg [4:0] read_reg2 = instruction[24:20];
-// reg [4:0] write_reg = instruction[11:7];
-reg [63:0] read_data1, read_data2;
-reg [63:0] imm_out;
-reg [63:0] ALU_in2;
-reg Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite; // Control Module Outputs
-reg [1:0] ALUop;
-reg [63:0] ALU_out;
-reg zflag;                            //WARNING: zflag IS 2 BIT IN ALU, BUT TEXTBOOK USES 1 BIT FOR ZERO FLAG, UPDATE REQUIRED
-reg [3:0] ALU_control_out;
-reg [63:0] DM_out;
-reg [63:0] write_data;
-reg [63:0] SLA_out;
-//Program Counter Register (holds the address of the next instruction to be executed)
-reg [63:0] pc_in = 64'd0;
-reg [63:0] pc_out;
-reg [63:0] pc_incremented;
-reg MUX64_PC_sel;
+// ID|EX Pipeline Registers
+reg [63:0] IDEX_imm, IDEX_a, IDEX_b;
+reg [4:0]  IDEX_Rs1, IDEX_Rs2, IDEX_Rd;
+reg        IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, IDEX_MemWrite, IDEX_ALUsrc; 
+reg [1:0]  IDEX_ALUop;
+reg [3:0]  IDEX_ALUcontrol;
 
-/* Program Counter Logic */
-assign PC_plus_4 = pc_out + 4;
-assign MUX64_PC_sel = Branch & zflag;
-always @(posedge clk) pc_incremented = pc_out + 4; // 4 is added to increment PC
-PCreg PC(clk, rst, pc_in, pc_out); // The actual PC Register
-ShiftLeftandAdd SLA(pc_out, imm_out, SLA_out);
-// PC MUX that drives pc_in
-always_comb begin
-    if(~rst) pc_in = MUX64_PC_sel? SLA_out: pc_incremented;
-    else pc_in = 64'd0;
+// EX|M Pipeline Registers
+reg [63:0] EXM_ALUout, EXM_muxb;
+reg [4:0]  EXM_Rd;
+reg        EXM_RegWrite, EXM_MemtoReg, EXM_Branch, EXM_MemRead, EXM_MemWrite;
+reg        EXM_zflag;
+
+// M|WB Pipeline Registers
+reg [63:0] MWB_dout, MWB_aluout;
+reg [4:0]  MWB_Rd;
+reg        MWB_RegWrite, MWB_MemtoReg;
+
+// General Wires, Regs
+reg [63:0] WriteData;
+reg [63:0] PC_plus_shimm;
+reg        PC_Write, PC_src, IFID_Write, IF_Flush;
+reg        zflag;
+reg [3:0]  ALUctrl;
+reg [63:0] ALUout;
+ 
+
+/* * * Start of Datapath Logic: * * */
+
+/*
+ * (1) IF - Instruction Fetch Stage
+ */
+reg [63:0] iMem_out; 
+reg [63:0] PC_in, PC_out, PC_incremented;
+wire [64:0] IFID_pc_next;
+wire [32:0] IFID_i_next;
+
+assign PC_in = PC_src? PC_incremented : PC_plus_shimm; // MUX before PC
+
+always_comb PC_incremented = PC_out + 4; // PC incrementer
+
+vDFFE #(64) PC (clk, PC_Write, PC_in, PC_out); // PC Reg that's enabled by PC_Write
+
+iMem IMEM(.address(PC_out), .instruction(iMem_out));
+
+assign IFID_pc_next = IFID_Write? PC_out : IFID_pc; // Disable writing to IFID Registers in the event of a stall
+assign IFID_i_next = IFID_Write? iMem_out : IFID_i; 
+
+always @(posedge clk) begin  // IF ---> ID
+    IFID_pc <= IFID_pc_next; // These must be non-blocking since they all happen in parallel (concurrently)
+    IFID_i <= IFID_i_next;
 end
 
 
-regfile REGFILE(
-    .i(instruction),
-    .write_data(write_data),
-    .write(RegWrite),
-    .clk(clk),
-    .rst(rst),
-    .data_out1(read_data1),
-    .data_out2(read_data2)
-);
+/*
+ * (2) ID - Instruction Decode Stage
+ */
+reg [63:0] imm, sh_imm; // 64 bit immediate, and sh_imm holds imm left shifted by 1
+reg hazard_flag; // Controls the MUX after the Control Module
+wire [7:0] control_out;
 
-Control CONTROL(instruction, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
+assign sh_imm = {imm[62:0],1'b0}; // Left Shift by 1
+assign PC_plus_shimm = sh_imm + IFID_pc; // Adds to PC
 
-ImmGen IMMGEN(instruction, imm_out);
+ImmGen IMMGEN(IFID_i, imm); // Extracts a 64-bit sign-ext. immediate from the instruction
 
-MUX64 MUX64_REG_ALU(
-    .in0(read_data2),
-    .in1(imm_out),
-    .sel(ALUsrc),
-    .out(ALU_in2)
-);
+Control CONTROL(IFID_i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
 
-ALU ALU(read_data1, ALU_in2, ALU_control_out, ALU_out, zflag);
+regfile REGFILE(.i(IFID_i), .write_data(WriteData), .write(MWB_RegWrite), 
+                .clk(clk), .rst(rst), .data_out1(IDEX_a), .data_out2(IDEX_b)); // Rd1 and Rd2 goes directly to IDEX_a and b
 
-ALUcontrol ALUCONTROL(instruction, ALUop, ALU_control_out);
+HazardDetectionUnit HAZDU(.IFID_i(IFID_i), .IDEX_Rd(IDEX_Rd), .MemRead(IDEX_MemRead),
+                          .PC_Write(PC_Write), .IFID_Write(IFID_Write), .hazard_flag(hazard_flag));
 
-DataMemory DM(
-    .clk(clk),
-    .address(ALU_out),
-    .write_data(read_data2),
-    .mem_read(MemRead),
-    .mem_write(MemWrite),
-    .read_data(DM_out)
-);
+assign control_out = {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop};
+assign {IDEX_RegWrite, // MUX to override Control Output with 0s when a Hazard occurs
+        IDEX_MemtoReg, 
+        IDEX_Branch, 
+        IDEX_MemRead, 
+        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} = (hazard_flag)? 8'b0 : control_out; 
 
-MUX64 MUX64_DM(
-    .in0(ALU_out),
-    .in1(DM_out),
-    .sel(MemtoReg),
-    .out(write_data) 
-);
+always @(posedge clk) begin    // ID ---> EX
+    IDEX_Rs1 <= IFID_i[19:15]; // Rs1
+    IDEX_Rs2 <= IFID_i[24:20]; // Rs2
+    IDEX_Rd  <= IFID_i[11:7];  // Rd
+    IDEX_ALUcontrol <= {IFID_i[30], IFID_i[14:12]}; // This is the input for the ALU Control module
+    IDEX_imm <= imm;
+    {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
+    IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop}; // Control Signals
+end
+
+/*
+ * (3) EX - Execution Stage
+ */
+reg [1:0] ForwardA, ForwardB;
+reg [63:0] ALUa, ALUb, IDEX_muxb;
+
+always_comb begin // MUX for Rd1
+    case(ForwardA)
+        2'b00: ALUa = IDEX_a;
+        2'b01: ALUa = WriteData;
+        2'b10: ALUa = EXM_ALUout;
+        default: 64'bx;
+    endcase
+end
+
+always_comb begin // MUX for Rd2
+    case(ForwardB)
+        2'b00: IDEX_muxb = IDEX_b;
+        2'b01: IDEX_muxb = WriteData;
+        2'b10: IDEX_muxb = EXM_ALUout;
+        default: 64'bx;
+    endcase
+end
+
+assign ALUb = (IDEX_ALUsrc)? IDEX_imm : IDEX_muxb; // MUX right before ALUb
+
+ALUcontrol ALUCONTROL(IDEX_ALUcontrol, IDEX_ALUop, ALUctrl);
+
+ALU ALU(ALUa, ALUb, ALUctrl, ALUout, zflag);
+
+ForwardingUnit FWDU(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
+
+always @(posedge clk) begin    // EX ---> M
+    EXM_zflag <= zflag;
+    EXM_ALUout <= ALUout;
+    EXM_muxb <= IDEX_muxb;
+    EXM_Rd <= IDEX_Rd;
+    {EXM_RegWrite, EXM_MemtoReg, EXM_Branch, 
+    EXM_MemRead, EXM_MemWrite} <= {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, IDEX_MemWrite};
+end
+
+/*
+ * (4) M - Memory Access Stage
+ */
+assign PC_src = EXM_Branch & EXM_zflag;
+
+dataMem dMEM( .clk(clk), .rst(rst), .address(EXM_ALUout), .write_data(EXM_muxb),    
+              .mem_read(EXM_MemRead), .mem_write(EXM_MemWrite), .read_data(MWB_dout)); // MWB_dout <= ...
+
+always @(posedge clk) begin    // M ---> WB
+    MWB_aluout <= EXM_aluout;
+    MWB_Rd <= EXM_Rd;
+    MWB_RegWrite <= EXM_RegWrite;
+    MWB_MemtoReg <= EXM_MemtoReg;
+end
+
+/*
+ * (5) WB - Write Back Stage
+ */
+assign WriteData = (MWB_MemtoReg)? MWB_aluout : MWB_dout;
 
 endmodule
 
-// // Instruction memory module will read a 64bit address (PC) and output the corresponding instruction (RAM)
-// module InstructionMemory (
-//     input wire [63:0] address,     // Address input
-//     output reg [31:0] instruction  // Instruction output
-// );
 
-//     // Instruction memory array (stores 1024 32-bit instructions)
-//     reg [31:0] memory [0:1023];
 
-    /*
-    // Initialize the instruction memory with some values
-    initial begin
-        $readmemh("instructions.mem", memory);  // Load instructions from a file
-    end
-    */
+/* * * Start of Module Definitions: * * */
 
-//     // Output the instruction at the given address
-//     always @(address) begin
-//         instruction = memory[address[63:2]];    // Address is byte-aligned, so divide by 4
-//     end
-// endmodule
 
-// The data memory module supports both read and write operations
-// It has separate input ports for address, data to be written, and control signals for reading and writing
-module DataMemory (
-    input wire clk,                  // Clock signal
-    input wire [63:0] address,       // Address input
-    input wire [63:0] write_data,    // Data to write
-    input wire mem_read,             // Memory read enable
-    input wire mem_write,            // Memory write enable
-    output reg [63:0] read_data      // Data read output
-);
-
-    // Data memory array (stores 1024 64-bit data)
-    reg [63:0] memory [0:1023];
-
-    // Read data
-    always @(posedge clk) begin
-        if (mem_read) begin
-            read_data <= memory[address[63:3]];  // Address is byte-aligned, so divide by 8
-        end
-    end
-
-    // Write data
-    always @(posedge clk) begin
-        if (mem_write) begin
-            memory[address[63:3]] <= write_data;  // Address is byte-aligned, so divide by 8
-        end
-    end
-endmodule
 
 /* Immediate Generation Unit Module
 
@@ -179,15 +215,7 @@ module ImmGen(in, imm_out);
     end
 endmodule
 
-/* Takes output of ImmGen, shifts by 1, and add to program counter */
-module ShiftLeftandAdd(pc64, imm64, out64);
-    input [63:0] pc64;
-    input [63:0] imm64; // Gets shifted left by 1 and 0 fills in lsb.
-    output [63:0] out64;
-    wire [64:0] shift_output;
-    assign shift_output = {imm64, 1'b0}; // Shift imm64 by 1 and fill lsb with 0.
-    assign out64 = pc64 + shift_output[63:0]; // Adds shifted value to pc64.
-endmodule
+
 
 /* ALU Control Module
  *
@@ -253,6 +281,30 @@ module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
     end
 endmodule   
 
+// Hazard Detection Unit to check Pipeline Hazards
+module HazardDetectionUnit(
+    input [63:0] IFID_i,
+    input [4:0] IDEX_Rd,
+    input MemRead,
+    output PC_Write,
+    output IFID_Write,
+    output hazard_flag
+);
+    // HAZARD CODE TBCOMPLETED
+
+endmodule
+
+module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
+    input [4:0] IDEX_Rs1, IDEX_Rs2, EXM_Rd, MWB_Rd;
+    input EXM_RegWrite, MWB_RegWrite;
+    output ForwardA, ForwardB;
+    
+    // Forwardingunit TBCompleted
+
+endmodule
+    
+
+
 //register with load enable
 module vDFFE(clk, en, in, out);
   parameter n = 1;  // width
@@ -275,24 +327,4 @@ module MUX64(in0, in1, sel, out);
     output [63:0] out;
 
     assign out = sel? in1 : in0;
-endmodule
-
-/* PC Special Register */
-module PCreg(clk, rst, in, out);
-    input clk, rst;
-    input [63:0] in;
-    output reg [63:0] out = 64'd0; // 0 Initialized
-    always @(posedge clk, rst) begin
-        if(~rst)
-            out = in;
-        else 
-            out = 64'd0;
-    end 
-endmodule
-
-module Add4PC(in, out);
-    input [63:0] in;
-    output reg [63:0] out;
-    always_comb
-        out = in + 4;
 endmodule
