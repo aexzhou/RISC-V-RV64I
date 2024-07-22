@@ -33,8 +33,11 @@ reg        PC_Write, PC_src, IFID_Write, IF_Flush;
 reg        zflag;
 reg [3:0]  ALUctrl;
 reg [63:0] ALUout;
- 
 
+initial begin
+    IF_Flush = 1'b0; // Default startup configurations
+end
+ 
 /* * * Start of Datapath Logic: * * */
 
 /*
@@ -45,7 +48,9 @@ reg [63:0] PC_in, PC_out, PC_incremented;
 wire [64:0] IFID_pc_next;
 wire [32:0] IFID_i_next;
 
-assign PC_in = PC_src? PC_incremented : PC_plus_shimm; // MUX before PC
+// assign PC_in = PC_src? PC_incremented : PC_plus_shimm; // MUX before PC
+assign PC_in = PC_src? PC_plus_shimm : PC_incremented; // MUX before PC:
+// PC_src = 1 if branch && zflag is true
 
 always_comb PC_incremented = PC_out + 4; // PC incrementer
 
@@ -57,8 +62,12 @@ assign IFID_pc_next = IFID_Write? PC_out : IFID_pc; // Disable writing to IFID R
 assign IFID_i_next = IFID_Write? iMem_out : IFID_i; 
 
 always @(posedge clk) begin  // IF ---> ID
-    IFID_pc <= IFID_pc_next; // These must be non-blocking since they all happen in parallel (concurrently)
-    IFID_i <= IFID_i_next;
+    IFID_pc <= IFID_pc_next;
+    if(IF_Flush)begin
+        IFID_i <= 32'd0; // NOP if being flushed 
+    end else begin
+        IFID_i <= IFID_i_next;
+    end
 end
 
 
@@ -67,6 +76,7 @@ end
  */
 reg [63:0] imm, sh_imm; // 64 bit immediate, and sh_imm holds imm left shifted by 1
 reg hazard_flag; // Controls the MUX after the Control Module
+reg equalFlag; // 1 if both register outputs are equal. 
 wire [7:0] control_out;
 
 assign sh_imm = {imm[62:0],1'b0}; // Left Shift by 1
@@ -74,7 +84,7 @@ assign PC_plus_shimm = sh_imm + IFID_pc; // Adds to PC
 
 ImmGen IMMGEN(IFID_i, imm); // Extracts a 64-bit sign-ext. immediate from the instruction
 
-Control CONTROL(IFID_i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
+Control CONTROL(IFID_i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
 
 regfile REGFILE(.i(IFID_i), .write_data(WriteData), .write(MWB_RegWrite), 
                 .clk(clk), .rst(rst), .data_out1(IDEX_a), .data_out2(IDEX_b)); // Rd1 and Rd2 goes directly to IDEX_a and b
@@ -88,6 +98,8 @@ assign {IDEX_RegWrite, // MUX to override Control Output with 0s when a Hazard o
         IDEX_Branch, 
         IDEX_MemRead, 
         IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} = (hazard_flag)? 8'b0 : control_out; 
+
+assign equalFlag = (IDEX_a == IDEX_b)? 1'b1 : 1'b0; // Check if both registers are equal.
 
 always @(posedge clk) begin    // ID ---> EX
     IDEX_Rs1 <= IFID_i[19:15]; // Rs1
@@ -259,8 +271,9 @@ endmodule
 
 
 // Control unit for the datapath (OPCODE --> Control Signals)
-module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
+module Control(i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
     input [31:0] i;
+    input equalFlag;
     output reg [1:0] ALUop;
     output reg Branch;
     output reg MemRead;
@@ -268,6 +281,7 @@ module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
     output reg MemWrite;
     output reg ALUsrc;
     output reg RegWrite;
+    output reg IF_Flush;
     
     always_comb begin
         case(i[6:0])
@@ -279,6 +293,7 @@ module Control(i, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite);
             default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = {8{1'bx}};
         endcase
     end
+    assign IF_Flush = (equalFlag && Branch)? 1'b1 : 1'b0; // Flush IFID registers to stall with NOP.
 endmodule   
 
 // Hazard Detection Unit to check Pipeline Hazards
@@ -290,8 +305,19 @@ module HazardDetectionUnit(
     output IFID_Write,
     output hazard_flag
 );
-    // HAZARD CODE TBCOMPLETED
-
+    wire [4:0] IFID_Rs1, IFID_Rs2;
+    assign IFID_Rs1 = IFID_i[19:15];
+    assign IFID_Rs2 = IFID_i[24:20];
+    if(MemRead && ((IDEX_Rd == IFID_Rs1) || (IDEX_Rd == IFID_Rs2))) begin
+        // Stalling the pipeline
+        hazard_flag = 1;
+        IFID_Write = 0;
+        PC_Write = 0;
+    end else begin
+        hazard_flag = 0;
+        IFID_Write = 1;
+        PC_Write = 1;
+    end
 endmodule
 
 module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);

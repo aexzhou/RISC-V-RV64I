@@ -8,11 +8,11 @@
 
 // 4'b1100: NOR
 
-module ALU(in1, in2, ALUop, out, Z);
+module ALU(in1, in2, ALUop, out, zflag);
     input [63:0] in1, in2;
     input [3:0] ALUop;
     output reg [63:0] out;
-    output reg Z; // Zero flag
+    output reg zflag; // Zero flag
 
     // //ADDSUB connection
     // wire [31:0] s;
