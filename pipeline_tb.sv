@@ -1,6 +1,6 @@
 `timescale 1ps/1ps
 
-module datapath_tb;
+module pipeline_tb;
 // Inputs to Datapath
 reg clk;
 reg rst;
@@ -44,7 +44,7 @@ initial begin
 
     // 1
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd11;
     if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -54,7 +54,7 @@ initial begin
     
     // 2
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -62,7 +62,7 @@ initial begin
     
     // 3
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[1] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -70,7 +70,7 @@ initial begin
 
     // 4
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[2] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -78,7 +78,7 @@ initial begin
 
     // 5
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd11;
     if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -86,7 +86,7 @@ initial begin
 
     // 6
     testset();
-    MUT.PC.PC_out = 64'h0;
+    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd8;
     if(MUT.REGFILE.X[1] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 

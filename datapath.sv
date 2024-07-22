@@ -4,7 +4,7 @@ module datapath(
 
 // IF|ID Pipeline Registers
 reg [63:0] IFID_pc;
-reg [32:0] IFID_i;
+reg [31:0] IFID_i;
 reg        RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc; 
 reg [1:0]  ALUop;                                            
 
@@ -33,17 +33,13 @@ reg        PC_Write, PC_src, IFID_Write, IF_Flush;
 reg        zflag;
 reg [3:0]  ALUctrl;
 reg [63:0] ALUout;
-
-initial begin
-    IF_Flush = 1'b0; // Default startup configurations
-end
  
 /* * * Start of Datapath Logic: * * */
 
 /*
  * (1) IF - Instruction Fetch Stage
  */
-reg [63:0] iMem_out; 
+reg [31:0] iMem_out; 
 reg [63:0] PC_in, PC_out, PC_incremented;
 wire [64:0] IFID_pc_next;
 wire [32:0] IFID_i_next;
@@ -235,7 +231,7 @@ endmodule
  * This is useful since it lessens the load on the Control Module
  * and reducing its latency thus decreasing clk cycle time. 
  */
-module ALUcontrol(i, ALUop, opout);
+module ALUcontrol(control, ALUop, opout);
 /* Inputs towards the ALU:
  * 4'b0000: AND
  * 4'b0001: OR
@@ -244,25 +240,23 @@ module ALUcontrol(i, ALUop, opout);
  * 4'b0111: SLT (Set on Less Than): will output 1 if A < B
  * 4'b1100: NOR
  */
-    input [31:0] i; // 32-bit instruction input 
+    input [3:0] control; // 32-bit instruction input 
     input [1:0] ALUop; // 2-bit ALUop from the Control Module
     output reg [3:0] opout; // 4-bit output towards the ALU
-    wire [6:0] funct7;
     wire [2:0] funct3;
-    assign funct7 = i[31:25]; // R-Type Instruction format
-    assign funct3 = i[14:12];
+    assign funct3 = control[2:0];
 
     always_comb begin
-        casex({ALUop, funct7, funct3})
-            12'b00xxxxxxx000: opout = 4'b0010; // addi
-            12'b00xxxxxxx111: opout = 4'b0000; // andi
-            12'b00xxxxxxx110: opout = 4'b0001; // ori
-            12'b00xxxxxxxxxx: opout = 4'b0010; // add
-            12'bx1xxxxxxxxxx: opout = 4'b0110; // sub
-            12'b1x0000000000: opout = 4'b0010; // add(r)
-            12'b1x0100000000: opout = 4'b0110; // sub
-            12'b1x0000000111: opout = 4'b0000; // and
-            12'b1x0000000110: opout = 4'b0001; // or
+        casex({ALUop, control[3], funct3})
+            7'b00x000: opout = 4'b0010; // addi
+            7'b00x111: opout = 4'b0000; // andi
+            7'b00x110: opout = 4'b0001; // ori
+            7'b00xxxx: opout = 4'b0010; // add
+            7'bx1xxxx: opout = 4'b0110; // sub
+            7'b1x0000: opout = 4'b0010; // add(r)
+            7'b1x1000: opout = 4'b0110; // sub
+            7'b1x0111: opout = 4'b0000; // and
+            7'b1x0110: opout = 4'b0001; // or
             default: opout = 4'bxxxx;
         endcase
     end
@@ -297,7 +291,7 @@ endmodule
 
 // Hazard Detection Unit to check Pipeline Hazards
 module HazardDetectionUnit(
-    input [63:0] IFID_i,
+    input [31:0] IFID_i,
     input [4:0] IDEX_Rd,
     input MemRead,
     output reg PC_Write,
@@ -324,7 +318,7 @@ endmodule
 module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
     input [4:0] IDEX_Rs1, IDEX_Rs2, EXM_Rd, MWB_Rd;
     input EXM_RegWrite, MWB_RegWrite;
-    output reg ForwardA, ForwardB;
+    output reg [1:0] ForwardA, ForwardB;
     
     //Forwarding Logic and driving the forwardA forwardB signals
 
