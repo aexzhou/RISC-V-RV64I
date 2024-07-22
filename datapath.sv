@@ -92,13 +92,6 @@ regfile REGFILE(.i(IFID_i), .write_data(WriteData), .write(MWB_RegWrite),
 HazardDetectionUnit HAZDU(.IFID_i(IFID_i), .IDEX_Rd(IDEX_Rd), .MemRead(IDEX_MemRead),
                           .PC_Write(PC_Write), .IFID_Write(IFID_Write), .hazard_flag(hazard_flag));
 
-assign control_out = {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop};
-assign {IDEX_RegWrite, // MUX to override Control Output with 0s when a Hazard occurs
-        IDEX_MemtoReg, 
-        IDEX_Branch, 
-        IDEX_MemRead, 
-        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} = (hazard_flag)? 8'b0 : control_out; 
-
 assign equalFlag = (IDEX_a == IDEX_b)? 1'b1 : 1'b0; // Check if both registers are equal.
 
 always @(posedge clk) begin    // ID ---> EX
@@ -107,8 +100,14 @@ always @(posedge clk) begin    // ID ---> EX
     IDEX_Rd  <= IFID_i[11:7];  // Rd
     IDEX_ALUcontrol <= {IFID_i[30], IFID_i[14:12]}; // This is the input for the ALU Control module
     IDEX_imm <= imm;
-    {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
-    IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop}; // Control Signals
+    if(~hazard_flag)begin
+        {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
+        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop}; // Control Signals    
+    end else begin
+         {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
+        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= 8'b0; // Overrides Control Output to 0s when Hazard occurs.
+    end
+   
 end
 
 /*
@@ -122,7 +121,7 @@ always_comb begin // MUX for Rd1
         2'b00: ALUa = IDEX_a;
         2'b01: ALUa = WriteData;
         2'b10: ALUa = EXM_ALUout;
-        default: 64'bx;
+        default: ALUa = {64{1'bx}};
     endcase
 end
 
@@ -131,7 +130,7 @@ always_comb begin // MUX for Rd2
         2'b00: IDEX_muxb = IDEX_b;
         2'b01: IDEX_muxb = WriteData;
         2'b10: IDEX_muxb = EXM_ALUout;
-        default: 64'bx;
+        default: IDEX_muxb = {64{1'bx}};
     endcase
 end
 
@@ -161,7 +160,7 @@ dataMem dMEM( .clk(clk), .rst(rst), .address(EXM_ALUout), .write_data(EXM_muxb),
               .mem_read(EXM_MemRead), .mem_write(EXM_MemWrite), .read_data(MWB_dout)); // MWB_dout <= ...
 
 always @(posedge clk) begin    // M ---> WB
-    MWB_aluout <= EXM_aluout;
+    MWB_aluout <= EXM_ALUout;
     MWB_Rd <= EXM_Rd;
     MWB_RegWrite <= EXM_RegWrite;
     MWB_MemtoReg <= EXM_MemtoReg;
@@ -301,61 +300,68 @@ module HazardDetectionUnit(
     input [63:0] IFID_i,
     input [4:0] IDEX_Rd,
     input MemRead,
-    output PC_Write,
-    output IFID_Write,
-    output hazard_flag
+    output reg PC_Write,
+    output reg IFID_Write,
+    output reg hazard_flag
 );
     wire [4:0] IFID_Rs1, IFID_Rs2;
     assign IFID_Rs1 = IFID_i[19:15];
     assign IFID_Rs2 = IFID_i[24:20];
-    if(MemRead && ((IDEX_Rd == IFID_Rs1) || (IDEX_Rd == IFID_Rs2))) begin
-        // Stalling the pipeline
-        hazard_flag = 1;
-        IFID_Write = 0;
-        PC_Write = 0;
-    end else begin
-        hazard_flag = 0;
-        IFID_Write = 1;
-        PC_Write = 1;
+    always_comb begin
+        if(MemRead && ((IDEX_Rd == IFID_Rs1) || (IDEX_Rd == IFID_Rs2))) begin
+            // Stalling the pipeline
+            hazard_flag = 1'b1;
+            IFID_Write = 0;
+            PC_Write = 0;
+        end else begin
+            hazard_flag = 0;
+            IFID_Write = 1;
+            PC_Write = 1;
+        end
     end
 endmodule
 
 module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
     input [4:0] IDEX_Rs1, IDEX_Rs2, EXM_Rd, MWB_Rd;
     input EXM_RegWrite, MWB_RegWrite;
-    output ForwardA, ForwardB;
+    output reg ForwardA, ForwardB;
     
     //Forwarding Logic and driving the forwardA forwardB signals
 
     // Forward from EX|M pipeline register
-    if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs1)) begin
-        ForwardA = 2'b10; // Forward from EXM
+    always_comb begin
+        if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs1)) begin
+            ForwardA = 2'b10; // Forward from EXM
+            ForwardB = 2'b00;
+        end 
+        else if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs2)) begin
+            ForwardA = 2'b00;
+            ForwardB = 2'b10; // Forward from MWB
+        end
+        // Forward from M|WB pipeline register
+        else if (MWB_RegWrite
+                && (MWB_Rd != 0)
+                && ~(EXM_RegWrite && (EXM_Rd != 0)
+                && (EXM_Rd == IDEX_Rs1))
+                && (MWB_Rd == IDEX_Rs1)) begin 
+            ForwardA = 2'b01;
+            ForwardB = 2'b00;
+        end
+
+        else if (MWB_RegWrite
+                && (MWB_Rd != 0)
+                && ~(EXM_RegWrite && (EXM_Rd != 0)
+                && (EXM_Rd == IDEX_Rs2))
+                && (MWB_Rd == IDEX_Rs2)) begin 
+            ForwardA = 2'b00;
+            ForwardB = 2'b01;
+        end
+        else begin
+            // No forwarding, the ALU operands come from the register file
+            ForwardA = 2'b00;
+            ForwardB = 2'b00;
+        end
     end 
-    else if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs2)) begin
-        ForwardB = 2'b10; // Forward from MWB
-    end
-    // Forward from M|WB pipeline register
-    else if (MWB_RegWrite
-            and (MWB_Rd != 0)
-            and not(EXM_RegWrite && (EXM_Rd != 0)
-            and (EXM_Rd = IDEX_Rs1))
-            and (MWB_Rd = IDEX_Rs1)) begin 
-        ForwardA = 2'b01
-    end
-
-    else if (MWB_RegWrite
-            and (MWB_Rd != 0)
-            and not(EXM_RegWrite && (EXM_Rd != 0)
-            and (EXM_Rd = IDEX_Rs2))
-            and (MWB_Rd = IDEX_Rs2)) begin 
-        ForwardB = 2'b01
-    end
-    else begin
-        // No forwarding, the ALU operands come from the register file
-        ForwardA = 2'b00;
-        ForwardB = 2'b00;
-    end
-
 endmodule
     
 
