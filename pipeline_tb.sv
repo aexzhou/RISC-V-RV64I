@@ -35,12 +35,12 @@ task testset; // Run before starting a new test
 endtask
 
 task testwait;
-    #16;
+    #100;
 endtask
 
 initial begin
     $display("Loading instructions...");
-    $readmemh("pipelinetest.txt", MUT.IMEM.memory);
+    $readmemh("data.txt", MUT.IMEM.memory);
 
     // 1
     testset();

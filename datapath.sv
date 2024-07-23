@@ -82,7 +82,7 @@ ImmGen IMMGEN(IFID_i, imm); // Extracts a 64-bit sign-ext. immediate from the in
 
 Control CONTROL(IFID_i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
 
-regfile REGFILE(.i(IFID_i), .write_data(WriteData), .write(MWB_RegWrite), 
+regfile REGFILE(.i(IFID_i), .writeR(MWB_Rd), .write_data(WriteData), .write(MWB_RegWrite), 
                 .clk(clk), .rst(rst), .data_out1(IDEX_a), .data_out2(IDEX_b)); // Rd1 and Rd2 goes directly to IDEX_a and b
 
 HazardDetectionUnit HAZDU(.IFID_i(IFID_i), .IDEX_Rd(IDEX_Rd), .MemRead(IDEX_MemRead),
@@ -165,7 +165,7 @@ end
 /*
  * (5) WB - Write Back Stage
  */
-assign WriteData = (MWB_MemtoReg)? MWB_aluout : MWB_dout;
+assign WriteData = (MWB_MemtoReg)? MWB_dout : MWB_aluout;
 
 endmodule
 

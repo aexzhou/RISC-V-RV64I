@@ -6,8 +6,9 @@
 // X0 is a zero-register 64'b0 
 // 31 other general regisers, X1-X31, can hold any registers
 
-module regfile(i,write_data,write,clk,rst,data_out1,data_out2);
+module regfile(i,writeR,write_data,write,clk,rst,data_out1,data_out2);
   input      [31:0] i; // Instruction Input
+  input      [4:0]  writeR;
   input      [63:0] write_data; //write data
   input             write, clk, rst; //enable for write
   output reg [63:0] data_out1;
@@ -17,7 +18,6 @@ module regfile(i,write_data,write,clk,rst,data_out1,data_out2);
 
   assign readR1 = i[19:15];
   assign readR2 = i[24:20];
-  assign writeR = i[11:7];
   assign write_data_protected = (writeR == 5'd0)? 64'd0 : write_data; // Protects X0 to not be over-written by any value so X0 maintains having 64'd0.
 
   reg [63:0] X [0:31] = '{default:64'b0}; // 32 X 64-bit registers
