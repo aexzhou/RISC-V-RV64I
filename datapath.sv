@@ -50,7 +50,16 @@ assign PC_in = PC_src? PC_plus_shimm : PC_incremented; // MUX before PC:
 
 always_comb PC_incremented = PC_out + 4; // PC incrementer
 
-vDFFE #(64) PC (clk, PC_Write, PC_in, PC_out); // PC Reg that's enabled by PC_Write
+// PC vDFFE with Reset
+wire [63:0] PC_next_out; 
+assign PC_next_out = PC_Write ? PC_in : PC_out; 
+always @(posedge clk, rst) begin
+    if(rst)begin
+        PC_out = 64'd0; // Reset to 0s on rst
+    end else begin
+        PC_out = PC_next_out;
+    end 
+end
 
 iMem IMEM(.address(PC_out), .instruction(iMem_out));
 
@@ -73,6 +82,7 @@ end
 reg [63:0] imm, sh_imm; // 64 bit immediate, and sh_imm holds imm left shifted by 1
 reg hazard_flag; // Controls the MUX after the Control Module
 reg equalFlag; // 1 if both register outputs are equal. 
+reg [63:0] Regout1, Regout2;
 wire [7:0] control_out;
 
 assign sh_imm = {imm[62:0],1'b0}; // Left Shift by 1
@@ -83,7 +93,7 @@ ImmGen IMMGEN(IFID_i, imm); // Extracts a 64-bit sign-ext. immediate from the in
 Control CONTROL(IFID_i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
 
 regfile REGFILE(.i(IFID_i), .writeR(MWB_Rd), .write_data(WriteData), .write(MWB_RegWrite), 
-                .clk(clk), .rst(rst), .data_out1(IDEX_a), .data_out2(IDEX_b)); // Rd1 and Rd2 goes directly to IDEX_a and b
+                .clk(clk), .rst(rst), .data_out1(Regout1), .data_out2(Regout2)); // Rd1 and Rd2 goes directly to IDEX_a and b
 
 HazardDetectionUnit HAZDU(.IFID_i(IFID_i), .IDEX_Rd(IDEX_Rd), .MemRead(IDEX_MemRead),
                           .PC_Write(PC_Write), .IFID_Write(IFID_Write), .hazard_flag(hazard_flag));
@@ -94,6 +104,8 @@ always @(posedge clk) begin    // ID ---> EX
     IDEX_Rs1 <= IFID_i[19:15]; // Rs1
     IDEX_Rs2 <= IFID_i[24:20]; // Rs2
     IDEX_Rd  <= IFID_i[11:7];  // Rd
+    IDEX_a <= Regout1;
+    IDEX_b <= Regout2;
     IDEX_ALUcontrol <= {IFID_i[30], IFID_i[14:12]}; // This is the input for the ALU Control module
     IDEX_imm <= imm;
     if(~hazard_flag)begin
@@ -283,7 +295,7 @@ module Control(i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc,
             7'b0000011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b11110000; // ld (I-type LOAD)
             7'b0100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b1x001000; // sd (S-type)
             7'b1100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b0x000101; // beq (B-type)
-            default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = {8{1'bx}};
+            default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'd0;
         endcase
     end
     assign IF_Flush = (equalFlag && Branch)? 1'b1 : 1'b0; // Flush IFID registers to stall with NOP.

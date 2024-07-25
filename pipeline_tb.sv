@@ -35,7 +35,7 @@ task testset; // Run before starting a new test
 endtask
 
 task testwait;
-    #100;
+    #150;
 endtask
 
 initial begin
@@ -44,17 +44,15 @@ initial begin
 
     // 1
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd11;
-    if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
+    if(MUT.REGFILE.X[4] !== data_ref) begin $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; end
     data_ref = 64'd12;
-    if(MUT.REGFILE.X[3] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
+    if(MUT.REGFILE.X[3] !== data_ref) begin $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; end
     $display("TEST %d PASSED",test_num);
     
     // 2
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -62,7 +60,6 @@ initial begin
     
     // 3
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[1] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -70,7 +67,6 @@ initial begin
 
     // 4
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = -64'd1;
     if(MUT.REGFILE.X[2] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -78,7 +74,6 @@ initial begin
 
     // 5
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd11;
     if(MUT.REGFILE.X[4] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
@@ -86,7 +81,6 @@ initial begin
 
     // 6
     testset();
-    MUT.PC.out = 64'h0;
     testwait();
     data_ref = 64'd8;
     if(MUT.REGFILE.X[1] !== data_ref) $error("TEST %d FAILED, expected: %h, got: %h",test_num,data_ref,MUT.REGFILE.X[5]); err = 1'b1; $stop; 
