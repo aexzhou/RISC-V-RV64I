@@ -3,3 +3,10 @@ work/
 *.cr.mti
 *.wlf
 *.do
+*.sopcinfo
+*.bak
+hps_fpga/
+db/
+.qsys_edit/
+*.qsf
+output_files/

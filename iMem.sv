@@ -4,10 +4,17 @@ module iMem (
     output reg [31:0] instruction  // Instruction output
 );
 
-    parameter WIDTH = 256;
+    hidden_wires_pkg::connect(imem_wires, 1'b1);
+
+
+    parameter WIDTH = 1024;
 
     reg [31:0] memory [0:WIDTH-1]; // Instruction memory array (stores <WIDTH> amount of 32-bit instructions)
 
+
+    
+
+    hidden_wires_pkg::connect(imem_wires, 1'b0);
     /*
     Initialize the instruction memory with some values in a file
     initial begin
@@ -15,8 +22,10 @@ module iMem (
     end
     */
 
+
+
     // Output the instruction at the given address
     always @(address) begin
-        instruction = memory[address[63:2]];    // Address is byte-aligned, so divide by 4
+        instruction <= memory[address[63:2]];    // Address is byte-aligned, so divide by 4
     end
 endmodule

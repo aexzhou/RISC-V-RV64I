@@ -1,4 +1,4 @@
-module DE1_SoC_Computer (
+module top_level (
 	////////////////////////////////////
 	// FPGA Pins
 	////////////////////////////////////
@@ -443,139 +443,160 @@ reg[31:0] fpga_to_hps_in_csr_readdata ;
 reg fpga_to_hps_in_csr_read ; // status regs read cmd
 reg [7:0] FPGA_to_HPS_state ;
 
-reg [31:0] ith_instruction = 0;
-reg [31:0] ith_data = 0;
+reg [63:0] ith_instruction_address = 64'd0;
+reg [63:0] ith_data_address = 64'd0;
 
+hidden_wires_pkg::hidden_wires_t        imem_wires;
+hidden_wires_pkg::hidden_wires_t        dmem_data;
+hidden_wires_pkg::hidden_wires_t        dmem_addr;
+hidden_clk_pkg::hidden_clk_t        hidden_clk;
 //=======================================================
 // do the work outlined above
 always @(posedge CLOCK_50) begin // CLOCK_50
 
-		// =================================
-		// HPS_to_FPGA state machine
-		//================================== 
+	hidden_clk.clk <= CLOCK_50;
+	hidden_clk_pkg::connect(hidden_clk, 1'b1);
 
-        // Reset state machine and read/write controls on Reset Key
-        if (~KEY[0]) begin
-			cpu_clk_src <= 1'b0;
-            state <= 8'd0 ;
-            sram_write <= 1'b0 ;
-			ith_instruction <= 0;
-        end
+	// =================================
+	// HPS_to_FPGA state machine
+	//================================== 
 
-		// State 0 : Wait for CPU instructions to appear in HPS_to_FPGA FIFO
-        // Is there data in HPS_to_FPGA FIFO
-        // and the last transfer is complete
-        if (state == 8'd0 && !(hps_to_fpga_out_csr_readdata[1]) && !data_buffer_valid)  begin
-			cpu_clk_src <= 1'b0;
-            hps_to_fpga_read <= 1'b1 ;
-            state <= 8'd1 ; 
-        end
-        
-        // Delay state
-		// State 1: Idle/delay state
-        if (state == 8'd1) begin
-            // zero the read request BEFORE the data appears 
-            // in the next state!
-			cpu_clk_src <= 1'b0;
-            hps_to_fpga_read <= 1'b0 ;
-            state <= 8'd2 ;
-        end
-        
-        // State 2 : Read the word from the FIFO
-        if (state == 8'd2) begin
-			cpu_clk_src <= 1'b0;
-			if(&hps_to_fpga_readdata) // check if all the bits are 1s (which is the terminating command)
-				state <= 8'd4;
-			else begin
-				CPU.iMem.memory[ith_instruction] <= hps_to_fpga_readdata ; // send back data
-				data_buffer_valid <= 1'b1 ; // set the data ready flag
-				hps_to_fpga_read <= 1'b0 ;
-				state <= 8'd3; 
-			end
-        end
+	// Reset state machine and read/write controls on Reset Key
+	if (~KEY[0]) begin
+		cpu_clk_src <= 1'b0;
+		state <= 8'd0 ;
+		sram_write <= 1'b0 ;
+		ith_instruction_address <= 64'd0;
+	end
 
-		// State 3 : Increments the ith_instruction counter
-		if (state == 8'd3) begin 
-			cpu_clk_src <= 1'b0;
-			ith_instruction <= ith_instruction + 1;
-			state <= 8'd0; //  Return to state 0 to fetch the next instruction
-		end
-    
-		// State 4 : CPU turn ON
-		if (state == 8'd4) begin
-			cpu_clk_src <= 1'b1;
-			cpu_rst <= 1'b1;
-			state <= 8'd5;
-		end
-
-		// State 5 : Wait for CPU to finish execution
-		if (state == 8'd5) begin
-			cpu_clk_src <= 1'b1; // Sets CPU's clk to be CLOCK_50
-			cpu_rst <= 1'b0;
-			// Waits for CPU to execute its last instruction address
-			if(CPU.PC_out[63:2] == 62'h400) state <= 8'd6; // If PC has been through all 1024 instruction spaces
-			else state <= 8'd5; // CPU may still be running in this case
-		end
-
-		// State 6 : CPU turn OFF (by turning its clock off)
-		if (state == 8'd6) begin
-			cpu_clk_src <= 1'b0;
-			state <= 8'd7; 
-			ith_data <= 32'd0;
-		end
-
+	// State 0 : Wait for CPU instructions to appear in HPS_to_FPGA FIFO
+	// Is there data in HPS_to_FPGA FIFO
+	// and the last transfer is complete
+	if (state == 8'd0 && !(hps_to_fpga_out_csr_readdata[1]) && !data_buffer_valid)  begin
+		cpu_clk_src <= 1'b0;
+		hps_to_fpga_read <= 1'b1 ;
+		state <= 8'd1 ; 
+	end
 	
-		// =================================
-		// FPGA_to_HPS state machine
-		//================================== 
-		// is there space in the 
-		// FPGA_to_HPS FIFO
-		// and data is available
-		// The Data Memory in this CPU has a depth of 1024
+	// Delay state
+	// State 1: Idle/delay state
+	if (state == 8'd1) begin
+		// zero the read request BEFORE the data appears 
+		// in the next state!
+		cpu_clk_src <= 1'b0;
+		hps_to_fpga_read <= 1'b0 ;
+		state <= 8'd2 ;
+	end
+	
+	// State 2 : Read the word from the FIFO
+	if (state == 8'd2) begin
+		cpu_clk_src <= 1'b0;
+		if(&hps_to_fpga_readdata) // check if all the bits are 1s (which is the terminating command)
+			state <= 8'd4;
+		else begin
+			// CPU.IMEM.memory[ith_instruction_address] <= hps_to_fpga_readdata ; // send back data
+			
+			imem_wires.data <= hps_to_fpga_readdata;
+			imem_wires.address <= ith_instruction_address;
 
-		// Sending the Upper Half (MSB) 32 bits first ...
-		// State 7
-		if (state==7 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
-			// feeds the ith data memory location to the SRAM
-			fpga_to_hps_in_writedata <= CPU.dataMem.memory[ith_data][63:32]; 
-			fpga_to_hps_in_write <= 1'b1 ;
-			state <= 8'd8 ;
+			data_buffer_valid <= 1'b1 ; // set the data ready flag
+			hps_to_fpga_read <= 1'b0 ;
+			state <= 8'd3; 
 		end
-		
-		// State 8 : Finish the Upper Half write to FPGA_to_HPS FIFO
-		if (state==8) begin
-			fpga_to_hps_in_write <= 1'b0 ;
-			data_buffer_valid <= 1'b0 ; // used the data, so clear flag
-			state <= 8'd9 ;
-		end
+	end
+	hidden_wires_pkg::connect(imem_wires, 1'b1);
+	
 
-		// State 9 : Sending the LSB 32 bits after ...
-		if (state==9 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
-			// feeds the ith data memory location to the SRAM
-			fpga_to_hps_in_writedata <= CPU.dataMem.memory[ith_data][31:0]; 
-			fpga_to_hps_in_write <= 1'b1 ;
-			state <= 8'd10 ;
-		end
-		
-		// State 10 : Finish the Lower Half write to FPGA_to_HPS FIFO
-		if (state==10) begin
-			fpga_to_hps_in_write <= 1'b0 ;
-			data_buffer_valid <= 1'b0 ; // used the data, so clear flag
-			state <= 8'd11 ;
-		end
+	// State 3 : Increments the ith_instruction_address counter
+	if (state == 8'd3) begin 
+		cpu_clk_src <= 1'b0;
+		ith_instruction_address <= ith_instruction_address + 1;
+		state <= 8'd0; //  Return to state 0 to fetch the next instruction
+	end
 
-		// State 11 : Increments the ith data Counter, 
-		// and goes back to the 0th state when all data (1024 slots) has been sent.
-		if (state==11) begin
-			if (ith_data == 1024) begin
-				ith_data <= 0;
-				state <= 8'd0;
-			end
-			else begin
-				state <= 8'd7;
-				ith_data <= ith_data + 1;
-			end
+	// State 4 : CPU turn ON
+	if (state == 8'd4) begin
+		cpu_clk_src <= 1'b1;
+		cpu_rst <= 1'b1;
+		state <= 8'd5;
+	end
+
+	// State 5 : Wait for CPU to finish execution
+	if (state == 8'd5) begin
+		cpu_clk_src <= 1'b1; // Sets CPU's clk to be CLOCK_50
+		cpu_rst <= 1'b0;
+		// Waits for CPU to execute its last instruction address
+		if(CPU.PC_out[63:2] == 62'h400) state <= 8'd6; // If PC has been through all 1024 instruction spaces
+		else state <= 8'd5; // CPU may still be running in this case
+	end
+
+	// State 6 : CPU turn OFF (by turning its clock off)
+	if (state == 8'd6) begin
+		cpu_clk_src <= 1'b0;
+		state <= 8'd7; 
+		ith_data_address <= 64'd0;
+	end
+
+
+	// =================================
+	// FPGA_to_HPS state machine
+	//================================== 
+	// is there space in the 
+	// FPGA_to_HPS FIFO
+	// and data is available
+	// The Data Memory in this CPU has a depth of 1024
+
+	// Sending the Upper Half (MSB) 32 bits first ...
+	// State 7
+	if (state==7 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
+		// feeds the ith data memory location to the SRAM
+		// fpga_to_hps_in_writedata <= CPU.dataMem.memory[ith_data_address][63:32]; 
+		dmem_addr.address <= ith_data_address;
+		fpga_to_hps_in_writedata <= dmem_data.data[63:32]; 
+
+		fpga_to_hps_in_write <= 1'b1 ;
+		state <= 8'd8 ;
+	end
+	
+	// State 8 : Finish the Upper Half write to FPGA_to_HPS FIFO
+	if (state==8) begin
+		fpga_to_hps_in_write <= 1'b0 ;
+		data_buffer_valid <= 1'b0 ; // used the data, so clear flag
+		state <= 8'd9 ;
+	end
+
+	// State 9 : Sending the LSB 32 bits after ...
+	if (state==9 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
+		// feeds the ith data memory location to the SRAM
+		// fpga_to_hps_in_writedata <= CPU.dMEM.memory[ith_data_address][31:0]; 
+		dmem_addr.address <= ith_data_address;
+		fpga_to_hps_in_writedata <= dmem_data.data[31:0]; 
+
+		fpga_to_hps_in_write <= 1'b1 ;
+		state <= 8'd10 ;
+	end
+	hidden_wires_pkg::connect(dmem_data, 1'b0);
+	hidden_wires_pkg::connect(dmem_addr, 1'b1);
+
+	// State 10 : Finish the Lower Half write to FPGA_to_HPS FIFO
+	if (state==10) begin
+		fpga_to_hps_in_write <= 1'b0 ;
+		data_buffer_valid <= 1'b0 ; // used the data, so clear flag
+		state <= 8'd11 ;
+	end
+
+	// State 11 : Increments the ith data Counter, 
+	// and goes back to the 0th state when all data (1024 slots) has been sent.
+	if (state==11) begin
+		if (ith_data_address == 1024) begin
+			ith_data_address <= 0;
+			state <= 8'd0;
 		end
+		else begin
+			state <= 8'd7;
+			ith_data_address <= ith_data_address + 1;
+		end
+	end
 	
 	//==================================
 end // always @(posedge state_clock)
@@ -586,7 +607,7 @@ end // always @(posedge state_clock)
 //=======================================================
 // From Qsys
 
-Computer_System The_System (
+hps_fpga HPS_FPGA (
 	////////////////////////////////////
 	// FPGA Side
 	////////////////////////////////////

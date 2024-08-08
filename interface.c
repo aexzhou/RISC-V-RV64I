@@ -155,20 +155,38 @@ int main(void)
 	
 	while(1) 
 	{
-		printf("\n\r enter N=");
-		scanf("%d", &N);
-		if (N>500) N = 1 ;
-		if (N<1) N = 1 ;
+		// printf("\n\r enter N=");
+		// scanf("%d", &N);
+		// if (N>500) N = 1 ;
+		// if (N<1) N = 1 ;
 		
-		// generate a sequence
-		for (i=0; i<N; i++){
-			data[i] = i + 1 ;
+		// // generate a sequence
+		// for (i=0; i<N; i++){
+		// 	data[i] = i + 1 ;
+		// }
+
+		// Simple ASM test:
+		data[0] = 0x00500093;
+		data[1] = 0x00600113;
+		data[2] = 0x00708193;
+		data[3] = 0x00208233;
+		data[4] = 0x40320233;
+		data[5] = 0x002080b3;
+		data[6] = 0x0030f0b3;
+		data[7] = 0x0040e0b3;
+		data[8] = 0x00412023;
+		data[9] = 0x00012103;
+		N = 10;
+		
+		printf("Testing the following instructions: \n\r");
+		for(int i=0; i<N; i++){
+			printf("%x\n\r", data[i]);
 		}
-		
-		// print fill levels
-		printf("=====================\n\r");
-		printf("fill levels before interleaved write\n\r");
-		printf("write=%d read=%d\n\r", WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL);
+				
+		// // print fill levels
+		// printf("=====================\n\r");
+		// printf("fill levels before interleaved write\n\r");
+		// printf("write=%d read=%d\n\r", WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL);
 		
 		// start the timer
 		//gettimeofday(&t1, NULL);
@@ -176,22 +194,22 @@ int main(void)
 		// ====================================
 		// send array to FIFO and read every time
 		// ====================================
-		for (i=0; i<N; i++){
-			int r;
-			// wait for a slot then
-			// do the actual FIFO write
-			FIFO_WRITE_BLOCK(data[i]);
-			// now read it back
-			while (!READ_FIFO_EMPTY) {
-				printf("return=%d %d %d\n\r", FIFO_READ, WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL) ; 
-			}	
-		}
-		if(!READ_FIFO_EMPTY) printf("delayed last read\n\r");
-		// and one last read because
-		// for this example occasionally there is one left on the loopback
-		while (!READ_FIFO_EMPTY) {
-			printf("return=%d %d %d\n\r", FIFO_READ, WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL) ;
-		}
+		// for (i=0; i<N; i++){
+		// 	int r;
+		// 	// wait for a slot then
+		// 	// do the actual FIFO write
+		// 	FIFO_WRITE_BLOCK(data[i]);
+		// 	// now read it back
+		// 	while (!READ_FIFO_EMPTY) {
+		// 		printf("return=%d %d %d\n\r", FIFO_READ, WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL) ; 
+		// 	}	
+		// }
+		// if(!READ_FIFO_EMPTY) printf("delayed last read\n\r");
+		// // and one last read because
+		// // for this example occasionally there is one left on the loopback
+		// while (!READ_FIFO_EMPTY) {
+		// 	printf("return=%d %d %d\n\r", FIFO_READ, WRITE_FIFO_FILL_LEVEL, READ_FIFO_FILL_LEVEL) ;
+		// }
 		
 		// finish timing the transfer
 		// gettimeofday(&t2, NULL);
