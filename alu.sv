@@ -26,24 +26,24 @@ module ALU(in1, in2, ALUop, out, zflag);
     //     .ovf(ovf)
     // );
 
-    always @(*) begin
+        always @(*) begin
         case(ALUop)
-            4'b0000: out = in1 & in2;
-            4'b0001: out = in1 | in2;
-            4'b0010: out = in1 + in2;
-            4'b0110: out = in1 - in2;
-            4'b0111: out = (in1<in2)? 64'd1 : 64'd0; // SLT
-            4'b1100: out = ~(in1 | in2); // NOR
-            default: out = {64{1'bx}};
+                4'b0000: out = in1 & in2; // AND
+                4'b0001: out = in1 | in2; // OR
+                4'b0010: out = in1 + in2; // ADD
+                4'b0110: out = in1 - in2; // SUB
+                4'b0111: out = (in1 < in2) ? 64'd1 : 64'd0; // SLT
+                4'b1100: out = ~(in1 | in2); // NOR
+                4'b1000: out = in1 ^ in2; // XOR
+                4'b1010: out = in1 << in2[5:0]; // SLL
+                4'b1011: out = in1 >> in2[5:0]; // SRL
+                4'b1111: out = in1 >>> in2[5:0]; // SRA
+                default: out = 64'bx;
         endcase
-
-        if(out == 64'd0)begin   // Zero flag
-            zflag = 1'b1;    
-        end else begin
-            zflag = 1'b0;
         end
 
-    end
+        assign out = out;
+        assign zflag = (out == 64'd0) ? 1'b1 : 1'b0;
 endmodule
 
 // // From Dally 10.3 and Slide Set 10, Slide 28

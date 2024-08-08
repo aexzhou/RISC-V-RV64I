@@ -31,7 +31,7 @@ reg [63:0] WriteData;
 reg [63:0] PC_plus_shimm;
 reg        PC_Write, PC_src, IFID_Write, IF_Flush;
 reg        zflag;
-reg [3:0]  ALUctrl;
+reg [3:0]  opout;
 reg [63:0] ALUout;
  
 /* * * Start of Datapath Logic: * * */
@@ -144,9 +144,9 @@ end
 
 assign ALUb = (IDEX_ALUsrc)? IDEX_imm : IDEX_muxb; // MUX right before ALUb
 
-ALUcontrol ALUCONTROL(IDEX_ALUcontrol, IDEX_ALUop, ALUctrl);
+ALUcontrol ALUCONTROL(IDEX_ALUcontrol, IDEX_ALUop, opout);
 
-ALU ALU(ALUa, ALUb, ALUctrl, ALUout, zflag);
+ALU ALU(ALUa, ALUb, opout, ALUout, zflag);
 
 ForwardingUnit FWDU(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
 
@@ -222,13 +222,11 @@ module ImmGen(in, imm_out);
 
     always_comb begin
         case(in[6:0])
-            7'b1101111: imm_out = { {51{in[31]}}, in[31], in[19:12], in[20], in[30:21], 1'b0}; // J-Type
-            7'b1100111: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type JALR
-            7'b0010011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type imm
-            7'b0000011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type load instructions
-            7'b0100011: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // S-type
-            7'b1100011: imm_out = { {51{in[31]}}, in[31], in[7], in[30:25], in[11:7], 1'b0 }; // B-Type
-            7'b0110111: imm_out = { in[31], in[30:20], in[19:12], 12'b0}; // U-Type
+            7'b0010011, 7'b0000011, 7'b1100111: imm_out = {{52{in[31]}}, in[31:20]}; // I-type
+            7'b0100011: imm_out = {{52{in[31]}}, in[31:25], in[11:7]}; // S-type
+            7'b1100011: imm_out = {{51{in[31]}}, in[31], in[7], in[30:25], in[11:8], 1'b0}; // B-type
+            7'b0110111, 7'b0010111: imm_out = {IFID_i[31:12], 12'd0}; // U-type
+            7'b1101111: imm_out = {{43{in[31]}}, in[31], in[19:12], in[20], in[30:21], 1'b0}; // J-type
             default: imm_out = 64'b0;
         endcase
     end
@@ -259,18 +257,32 @@ module ALUcontrol(control, ALUop, opout);
     assign funct3 = control[2:0];
 
     always_comb begin
-        casex({ALUop, control[3], funct3})
-            7'b00x000: opout = 4'b0010; // addi
-            7'b00x111: opout = 4'b0000; // andi
-            7'b00x110: opout = 4'b0001; // ori
-            7'b00xxxx: opout = 4'b0010; // add
-            7'bx1xxxx: opout = 4'b0110; // sub
-            7'b1x0000: opout = 4'b0010; // add(r)
-            7'b1x1000: opout = 4'b0110; // sub
-            7'b1x0111: opout = 4'b0000; // and
-            7'b1x0110: opout = 4'b0001; // or
-            default: opout = 4'bxxxx;
-        endcase
+    case (ALUop)
+        2'b00: begin // Add, Subtract, Logical Instructions
+            case (control[14:12])
+                3'b000: opout = (control[31:25] == 7'b0100000) ? 4'b0110 : 4'b0010; // SUB or ADD
+                3'b111: opout = 4'b0000; // AND
+                3'b110: opout = 4'b0001; // OR
+                3'b100: opout = 4'b1000; // XOR
+                3'b001: opout = 4'b1010; // SLL
+                3'b101: opout = (control[31:25] == 7'b0100000) ? 4'b1111 : 4'b1011; // SRA or SRL
+                default: opout = 4'bxxxx;
+            endcase
+        end
+        2'b01: opout = 4'b0110; // BEQ, BNE, BLT, BGE, BLTU, BGEU
+        2'b10: begin // R-type Instructions
+            case (control[14:12])
+                3'b000: opout = (control[31:25] == 7'b0100000) ? 4'b0110 : 4'b0010; // SUB or ADD
+                3'b111: opout = 4'b0000; // AND
+                3'b110: opout = 4'b0001; // OR
+                3'b100: opout = 4'b1000; // XOR
+                3'b001: opout = 4'b1010; // SLL
+                3'b101: opout = (control[31:25] == 7'b0100000) ? 4'b1111 : 4'b1011; // SRA or SRL
+                default: opout = 4'bxxxx;
+            endcase
+        end
+        default: opout = 4'bxxxx;
+    endcase
     end
 endmodule
 
@@ -293,8 +305,11 @@ module Control(i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc,
             7'b0010011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // I-type
             7'b0110011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b00100010; // R-type
             7'b0000011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b11110000; // ld (I-type LOAD)
-            7'b0100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b1x001000; // sd (S-type)
-            7'b1100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b0x000101; // beq (B-type)
+            7'b0100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10001000; // sd (S-type)
+            7'b1100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b00000101; // Branch (B-type)
+            7'b1101111: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // jal (J-type)
+            7'b1100111: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // jalr (J-type)
+            7'b0110111, 7'b0010111: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // lui, auipc (U-type)
             default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'd0;
         endcase
     end
