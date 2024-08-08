@@ -1,344 +1,397 @@
-//states for the fsm
-`define RST      4'd0
-`define IF1      4'd1
-`define IF2      4'd2
-`define UpdatePC 4'd3 
-`define DECODE   4'd4
-`define LoadA    4'd5
-`define LoadB    4'd6
-`define LoadC    4'd7
-`define MEMldr   4'd8
-`define Loadstr  4'd9
-`define MEMstr   4'd10
-`define MEMbuff  4'd11
-`define WRITE    4'd12
-
-// {opcode,op} definitions for operations
-`define MOVi 5'b11010
-`define MOVr 5'b11000
-`define ADD  5'b10100
-`define CMP  5'b10101
-`define AND  5'b10110
-`define MVN  5'b10111
-`define LDR  5'b01100
-`define STR  5'b10000
-`define HALT 5'b11100
-
-module cpu(clk,reset,read_data,write_data,mem_cmd,mem_addr,Z,V,N);
-input clk, reset;
-input [15:0] read_data;
-output [15:0] write_data;
-output reg [8:0] mem_addr;
-output reg [1:0] mem_cmd;
-output Z,V,N;
-
-reg [15:0]  ins_reg, ins_reg_temp, datapath_out, sximm5, sximm8, mdata;
-reg [2:0]   opcode, Rn, Rd, Rm, readnum, writenum, Z_out;
-reg [7:0]   imm8, PC;
-reg [4:0]   imm5;
-reg [1:0]   op, shift, ALUop, vsel, nsel;
-reg         loada, loadb, loadc, loads, asel, bsel, write, w_out;
-reg         reset_pc, load_pc, load_ir, load_addr, addr_sel;
-
-reg [8:0]   next_pc, pc_out, pc_temp;
-reg [8:0]   data_address_temp, data_address_out;
-
-//fsm state declaration
-reg [3:0] state;
-
-assign PC = pc_out[7:0];
-
-assign out = datapath_out;
-assign w = w_out;
-
-//Z_out Flag Assignment
-assign Z = Z_out[0];
-assign N = Z_out[1];
-assign V = Z_out[2];
-
-//CPU in/out assignments to adapt to datapath
-assign mdata = read_data;
-assign write_data = datapath_out;
-
-//Instruction Register dff
-assign ins_reg_temp = ins_reg;
-always_ff @(posedge clk) begin
-    if(load_ir) begin
-        ins_reg = read_data;
-    end else begin
-        ins_reg = ins_reg_temp;
-    end
-end
-
-//Program Counter MUX + incrementer
-always_comb begin
-    if(reset_pc)begin
-        next_pc = 9'd0;
-    end else begin
-        next_pc = pc_out + 9'd1;
-    end
-end
-//Program Counter dff
-assign pc_temp = pc_out;
-always_ff @(posedge clk) begin
-    if(load_pc) begin
-        pc_out = next_pc;
-    end else begin
-        pc_out = pc_temp;
-    end
-end
-
-//Address Selecter MUX
-always_comb begin
-    if(addr_sel)begin
-        mem_addr = pc_out;
-    end else begin
-        mem_addr = data_address_out;
-    end
-end
-//Data Address dff
-assign data_address_temp = data_address_out;
-always_ff @(posedge clk) begin
-    if(load_addr) begin
-        data_address_out = datapath_out[8:0];
-    end else begin
-        data_address_out = data_address_temp;
-    end
-end
-
-//Decoder
-always_comb begin
-    //to ctrler fsm
-    opcode  = ins_reg[15:13];
-    op      = ins_reg[12:11];
-    //to datapath
-    ALUop   = ins_reg[12:11];
-    imm5    = ins_reg[4:0];
-    imm8    = ins_reg[7:0];
-    shift   = ins_reg[4:3];
-    Rn      = ins_reg[10:8];
-    Rd      = ins_reg[7:5];
-    Rm      = ins_reg[2:0];
-
-    //nsel MUX
-    case(nsel)
-        2'd0: begin
-            readnum = Rn;
-            writenum = Rn;
-        end
-        2'd1: begin
-            readnum = Rd;
-            writenum = Rd;
-        end
-        2'd2: begin
-            readnum = Rm;
-            writenum = Rm;
-        end
-        default begin
-            readnum = 2'bxx;
-            writenum = 2'bxx;
-        end
-    endcase
-
-    // sign extending imm5 and imm8 based on their msb
-    if(imm5[4] == 1'b1) begin
-        sximm5 = {{11{1'b1}},imm5};
-    end else begin
-        sximm5 = {{11{1'b0}},imm5};
-    end
-
-    if(imm8[7] == 1'b1) begin
-        sximm8 = {{8{1'b1}},imm8};
-    end else begin
-        sximm8 = {{8{1'b0}},imm8};
-    end
-end
-
-//fsm states
-always_ff @(posedge clk) begin
-    if(reset)begin
-        state <= `RST;
-    end else begin
-        case(state)
-            `RST: state <= `IF1;
-
-            `IF1: state <= `IF2;
-
-            `IF2: state <= `UpdatePC;
-
-            `UpdatePC: state <= `DECODE;
-
-            `DECODE: begin
-                case({opcode,op})
-                    `MOVi: state <= `WRITE;
-                    `MOVr: state <= `LoadB;
-                    `ADD:  state <= `LoadA;
-                    `CMP:  state <= `LoadA;
-                    `AND:  state <= `LoadA;
-                    `MVN:  state <= `LoadB;
-                    `LDR:  state <= `LoadA;
-                    `STR:  state <= `LoadA;
-                    `HALT: state <= `DECODE;
-                    default: state <= 3'bxxx;
-                endcase
-            end
-
-            `LoadA: begin
-                if({opcode,op} == `LDR)begin
-                    state <= `LoadC;
-                end else if ({opcode,op} == `STR) begin
-                    state <= `LoadC;
-                end else begin
-                    state <= `LoadB;
-                end
-            end
-
-            `LoadB: state <= `LoadC;
-            
-            `LoadC: begin
-                case({opcode,op})
-                    `MOVr: state <= `WRITE; 
-                    `ADD:  state <= `WRITE;
-                    `CMP:  state <= `IF1;
-                    `AND:  state <= `WRITE;
-                    `MVN:  state <= `WRITE;
-                    `LDR:  state <= `MEMldr;
-                    `STR:  state <= `MEMstr;
-                    default: state <= 3'bxxx;
-                endcase
-            end
-            
-            `MEMldr: state <= `MEMbuff;
-
-            `MEMstr: state <= `MEMbuff;
-
-            `MEMbuff: begin
-                if({opcode,op} == `LDR)begin
-                    state <= `WRITE;
-                end else begin
-                    state <= `IF1;
-                end
-            end
-
-            `WRITE: state <= `IF1;
-            
-        default: state <= 3'bxxx;
-        endcase
-    end
-end
-
-reg [17:0] fsm_out;
-assign {reset_pc,addr_sel,load_ir,load_pc,load_addr,mem_cmd, write, loada, loadb, loadc, loads, asel, bsel, nsel, vsel} = fsm_out;
-/*  ASSIGNMENT CONVENTION FOR FSM OUTPUT TO DATAPATH
-    PURPOSE: avoides inferred latches
-    REFERENCE: Google Sheets: FSM output assignment
-    [TOGGLE AS NEEDED]
-bit 
-pos
-17  - reset_pc
-16  - addr_sel
-15  - load_ir
-14  - load_pc
-13  - load_addr
-12  - mem_cmd[1]
-11  - mem_cmd[0]
-10  - write
-9   - loada
-8   - loadb
-7   - loadc
-6   - loads
-5   - asel
-4   - bsel
-3   - nsel[1]
-2   - nsel[0]
-1   - vsel[1]
-0   - vsel[0]
-*/
-
-//fsm outputs
-always_comb begin
-    case(state)
-        `RST: fsm_out = 18'b100100000000000000;
-        `IF1: fsm_out = 18'b010000100000000000;
-        `IF2: fsm_out = 18'b011000100000000000;
-        `UpdatePC: fsm_out = 18'b000100000000000000;
-
-        `LoadA: fsm_out = 18'b000000001000000000;
-
-        `LoadB: fsm_out = 18'b000000000100001000;
-
-        `LoadC: begin
-            case({opcode,op})
-                `MOVr: fsm_out = 18'b000000000010100000;
-                `ADD:  fsm_out = 18'b000000000010000000;
-                `CMP:  fsm_out = 18'b000000000001000000;
-                `AND:  fsm_out = 18'b000000000010000000;
-                `MVN:  fsm_out = 18'b000000000010000000;
-                `LDR:  fsm_out = 18'b000000000010010000;
-                `STR:  fsm_out = 18'b000000000110010100;
-                default: fsm_out = 18'bxxxxxxxxxxxxxxxxxx;
-            endcase
-        end
-
-        `MEMldr: fsm_out = 18'b000010100000000000;
-
-        `MEMstr: fsm_out = 18'b000010000010100000;
-
-        `MEMbuff: begin
-            if({opcode,op} == `LDR) begin
-                fsm_out = 18'b000000100000000000;
-            end else begin
-                fsm_out = 18'b000001000000000000;
-            end
-        end
-
-        `WRITE: begin
-            case({opcode,op})
-                `MOVi: fsm_out = 18'b000000010000000010;
-                `MOVr: fsm_out = 18'b000000010000000100;
-                `ADD:  fsm_out = 18'b000000010000000100;
-                `AND:  fsm_out = 18'b000000010000000100;
-                `MVN:  fsm_out = 18'b000000010000000100;
-                `LDR:  fsm_out = 18'b000000110000000111;
-                default: fsm_out = 18'bxxxxxxxxxxxxxxxxxx;
-            endcase
-        end
-
-    default: fsm_out = 18'bxxxxxxxxxxxxxxxxxx;
-    endcase
-end
-
-reg shift_ctrl;
-//shift control for neg imm5 for str and ldr
-always_comb begin
-    if({opcode,op} == `STR || {opcode,op} == `LDR)
-        shift_ctrl = 1;
-    else 
-        shift_ctrl = 0;
-end
-
-// Datapath instantiation
-datapath DP(
-    .clk(clk),
-    .write(write),
-    .mdata(mdata),
-    .PC(PC),
-    .ALUop(ALUop),
-    .sximm8(sximm8),
-    .sximm5(sximm5),
-    .shift(shift),
-    .readnum(readnum),
-    .writenum(writenum),
-    .asel(asel),
-    .bsel(bsel),
-    .vsel(vsel),
-    .loada(loada),
-    .loadb(loadb),
-    .loadc(loadc),
-    .loads(loads),
-    .datapath_out(datapath_out),
-    .Z_out(Z_out),
-    .shift_ctrl(shift_ctrl)
+module cpu(
+    input clk, rst
 );
 
+// IF|ID Pipeline Registers
+reg [63:0] IFID_pc;
+reg [31:0] IFID_i;
+reg        RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc; 
+reg [1:0]  ALUop;                                            
+
+// ID|EX Pipeline Registers
+reg [63:0] IDEX_imm, IDEX_a, IDEX_b;
+reg [4:0]  IDEX_Rs1, IDEX_Rs2, IDEX_Rd;
+reg        IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, IDEX_MemWrite, IDEX_ALUsrc; 
+reg [1:0]  IDEX_ALUop;
+reg [3:0]  IDEX_ALUcontrol;
+
+// EX|M Pipeline Registers
+reg [63:0] EXM_ALUout, EXM_muxb;
+reg [4:0]  EXM_Rd;
+reg        EXM_RegWrite, EXM_MemtoReg, EXM_Branch, EXM_MemRead, EXM_MemWrite;
+reg        EXM_zflag;
+
+// M|WB Pipeline Registers
+reg [63:0] MWB_dout, MWB_aluout;
+reg [4:0]  MWB_Rd;
+reg        MWB_RegWrite, MWB_MemtoReg;
+
+// General Wires, Regs
+reg [63:0] WriteData;
+reg [63:0] PC_plus_shimm;
+reg        PC_Write, PC_src, IFID_Write, IF_Flush;
+reg        zflag;
+reg [3:0]  ALUctrl;
+reg [63:0] ALUout;
+ 
+/* * * Start of Datapath Logic: * * */
+
+/*
+ * (1) IF - Instruction Fetch Stage
+ */
+reg [31:0] iMem_out; 
+reg [63:0] PC_in, PC_out, PC_incremented;
+wire [64:0] IFID_pc_next;
+wire [32:0] IFID_i_next;
+
+// assign PC_in = PC_src? PC_incremented : PC_plus_shimm; // MUX before PC
+assign PC_in = PC_src? PC_plus_shimm : PC_incremented; // MUX before PC:
+// PC_src = 1 if branch && zflag is true
+
+always_comb PC_incremented = PC_out + 4; // PC incrementer
+
+// PC vDFFE with Reset
+wire [63:0] PC_next_out; 
+assign PC_next_out = PC_Write ? PC_in : PC_out; 
+always @(posedge clk, rst) begin
+    if(rst)begin
+        PC_out = 64'd0; // Reset to 0s on rst
+    end else begin
+        PC_out = PC_next_out;
+    end 
+end
+
+iMem IMEM(.address(PC_out), .instruction(iMem_out));
+
+assign IFID_pc_next = IFID_Write? PC_out : IFID_pc; // Disable writing to IFID Registers in the event of a stall
+assign IFID_i_next = IFID_Write? iMem_out : IFID_i; 
+
+always @(posedge clk) begin  // IF ---> ID
+    IFID_pc <= IFID_pc_next;
+    if(IF_Flush)begin
+        IFID_i <= 32'd0; // NOP if being flushed 
+    end else begin
+        IFID_i <= IFID_i_next;
+    end
+end
+
+
+/*
+ * (2) ID - Instruction Decode Stage
+ */
+reg [63:0] imm, sh_imm; // 64 bit immediate, and sh_imm holds imm left shifted by 1
+reg hazard_flag; // Controls the MUX after the Control Module
+reg equalFlag; // 1 if both register outputs are equal. 
+reg [63:0] Regout1, Regout2;
+wire [7:0] control_out;
+
+assign sh_imm = {imm[62:0],1'b0}; // Left Shift by 1
+assign PC_plus_shimm = sh_imm + IFID_pc; // Adds to PC
+
+ImmGen IMMGEN(IFID_i, imm); // Extracts a 64-bit sign-ext. immediate from the instruction
+
+Control CONTROL(IFID_i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
+
+regfile REGFILE(.i(IFID_i), .writeR(MWB_Rd), .write_data(WriteData), .write(MWB_RegWrite), 
+                .clk(clk), .rst(rst), .data_out1(Regout1), .data_out2(Regout2)); // Rd1 and Rd2 goes directly to IDEX_a and b
+
+HazardDetectionUnit HAZDU(.IFID_i(IFID_i), .IDEX_Rd(IDEX_Rd), .MemRead(IDEX_MemRead),
+                          .PC_Write(PC_Write), .IFID_Write(IFID_Write), .hazard_flag(hazard_flag));
+
+assign equalFlag = (IDEX_a == IDEX_b)? 1'b1 : 1'b0; // Check if both registers are equal.
+
+always @(posedge clk) begin    // ID ---> EX
+    IDEX_Rs1 <= IFID_i[19:15]; // Rs1
+    IDEX_Rs2 <= IFID_i[24:20]; // Rs2
+    IDEX_Rd  <= IFID_i[11:7];  // Rd
+    IDEX_a <= Regout1;
+    IDEX_b <= Regout2;
+    IDEX_ALUcontrol <= {IFID_i[30], IFID_i[14:12]}; // This is the input for the ALU Control module
+    IDEX_imm <= imm;
+    if(~hazard_flag)begin
+        {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
+        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= {RegWrite, MemtoReg, Branch, MemRead, MemWrite, ALUsrc, ALUop}; // Control Signals    
+    end else begin
+         {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, 
+        IDEX_MemWrite, IDEX_ALUsrc, IDEX_ALUop} <= 8'b0; // Overrides Control Output to 0s when Hazard occurs.
+    end
+   
+end
+
+/*
+ * (3) EX - Execution Stage
+ */
+reg [1:0] ForwardA, ForwardB;
+reg [63:0] ALUa, ALUb, IDEX_muxb;
+
+always_comb begin // MUX for Rd1
+    case(ForwardA)
+        2'b00: ALUa = IDEX_a;
+        2'b01: ALUa = WriteData;
+        2'b10: ALUa = EXM_ALUout;
+        default: ALUa = {64{1'bx}};
+    endcase
+end
+
+always_comb begin // MUX for Rd2
+    case(ForwardB)
+        2'b00: IDEX_muxb = IDEX_b;
+        2'b01: IDEX_muxb = WriteData;
+        2'b10: IDEX_muxb = EXM_ALUout;
+        default: IDEX_muxb = {64{1'bx}};
+    endcase
+end
+
+assign ALUb = (IDEX_ALUsrc)? IDEX_imm : IDEX_muxb; // MUX right before ALUb
+
+ALUcontrol ALUCONTROL(IDEX_ALUcontrol, IDEX_ALUop, ALUctrl);
+
+ALU ALU(ALUa, ALUb, ALUctrl, ALUout, zflag);
+
+ForwardingUnit FWDU(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
+
+always @(posedge clk) begin    // EX ---> M
+    EXM_zflag <= zflag;
+    EXM_ALUout <= ALUout;
+    EXM_muxb <= IDEX_muxb;
+    EXM_Rd <= IDEX_Rd;
+    {EXM_RegWrite, EXM_MemtoReg, EXM_Branch, 
+    EXM_MemRead, EXM_MemWrite} <= {IDEX_RegWrite, IDEX_MemtoReg, IDEX_Branch, IDEX_MemRead, IDEX_MemWrite};
+end
+
+/*
+ * (4) M - Memory Access Stage
+ */
+assign PC_src = EXM_Branch & EXM_zflag;
+
+dataMem dMEM( .clk(clk), .rst(rst), .address(EXM_ALUout), .write_data(EXM_muxb),    
+              .mem_read(EXM_MemRead), .mem_write(EXM_MemWrite), .read_data(MWB_dout)); // MWB_dout <= ...
+
+always @(posedge clk) begin    // M ---> WB
+    MWB_aluout <= EXM_ALUout;
+    MWB_Rd <= EXM_Rd;
+    MWB_RegWrite <= EXM_RegWrite;
+    MWB_MemtoReg <= EXM_MemtoReg;
+end
+
+/*
+ * (5) WB - Write Back Stage
+ */
+assign WriteData = (MWB_MemtoReg)? MWB_dout : MWB_aluout;
+
+endmodule
+
+
+
+/* * * Start of Module Definitions: * * */
+
+
+
+/* Immediate Generation Unit Module
+
+ * Selects a 12-bit field for LOAD, STORE, and BRANCH IF EQUAL that is
+ * sign-extended into a 64-bit result as output.
+
+ * LW  = {offset[11:0],               src1[4:0], 3'b000, dest[4:0],      7'b0100000}
+ * SW  = {offset[11:5],    src2[4:0], src1[4:0], 3'b000, dest[4:0],      7'b1000000}
+ * BEQ = {offset[12,10:5], src2[4:0], src1[4:0], 3'b000, offset[4:1,11], 7'b1100000}
+ */
+
+/* Instruction Formats for RISC-V Architecture
+ *
+ * R-Type Instructions                                      I-Type Instructions
+ * |31      25|24  20|19  15|14  12|11   7|6      0|        |31          20|19  15|14  12|11   7|6      0|
+ * |  funct7  |  rs2 |  rs1 |func3 |  rd  | opcode |        |    imm[11:0] |  rs1 |func3 |  rd  | opcode |
+ * Uses: R-R ops (add, sub, sll ...)                        Uses: Imm ops (addi, lw, srai ...)
+ *
+ * S-Type Instructions                                      B-Type Instructions
+ * |31      25|24  20|19  15|14  12|11   7|6      0|        |31    25|24  20|19  15|14  12|11      7|6     0|
+ * | imm[11:5]|  rs2 |  rs1 |func3 |imm[4:0]|opcode|        |imm[12| |  rs2 |  rs1 |func3 |imm[4:1| | opcode|
+ * Uses: Store ops (sw, sh ...)                             |  10:5] |      |      |      |     11] |
+ *                                                          Uses: Branch ops (beq, bne ...)
+ *      
+ * U-Type Instructions                                      J-Type Instructions
+ * |31              12|11   7|6      0|                     |31             12|11   7|6      0|
+ * |      imm[31:12]  |  rd  | opcode |                     |     imm[20|10:1]|  rd  | opcode |
+ * Uses: Long jumps and large constants (lui, auipc ...)    |       |11|19:12]|      |        |
+ *                                                          Uses: Jump operations (jal ...)
+ */
+module ImmGen(in, imm_out);
+    input       [31:0] in;    // 32-bit Instruction input
+    output reg  [63:0] imm_out;     // Sign extended 64-bit immediate 
+
+    always_comb begin
+        case(in[6:0])
+            7'b1101111: imm_out = { {51{in[31]}}, in[31], in[19:12], in[20], in[30:21], 1'b0}; // J-Type
+            7'b1100111: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type JALR
+            7'b0010011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type imm
+            7'b0000011: imm_out = { {52{in[31]}}, in[31:20] }; // I-Type load instructions
+            7'b0100011: imm_out = { {52{in[31]}}, in[31:25], in[11:7] }; // S-type
+            7'b1100011: imm_out = { {51{in[31]}}, in[31], in[7], in[30:25], in[11:7], 1'b0 }; // B-Type
+            7'b0110111: imm_out = { in[31], in[30:20], in[19:12], 12'b0}; // U-Type
+            default: imm_out = 64'b0;
+        endcase
+    end
+endmodule
+
+
+
+/* ALU Control Module
+ *
+ * Provides ALU with the right operation by judging 
+ * the inputs from the Control Unit and Instructions. 
+ * This is useful since it lessens the load on the Control Module
+ * and reducing its latency thus decreasing clk cycle time. 
+ */
+module ALUcontrol(control, ALUop, opout);
+/* Inputs towards the ALU:
+ * 4'b0000: AND
+ * 4'b0001: OR
+ * 4'b0010: ADD
+ * 4'b0110: SUB
+ * 4'b0111: SLT (Set on Less Than): will output 1 if A < B
+ * 4'b1100: NOR
+ */
+    input [3:0] control; // 32-bit instruction input 
+    input [1:0] ALUop; // 2-bit ALUop from the Control Module
+    output reg [3:0] opout; // 4-bit output towards the ALU
+    wire [2:0] funct3;
+    assign funct3 = control[2:0];
+
+    always_comb begin
+        casex({ALUop, control[3], funct3})
+            7'b00x000: opout = 4'b0010; // addi
+            7'b00x111: opout = 4'b0000; // andi
+            7'b00x110: opout = 4'b0001; // ori
+            7'b00xxxx: opout = 4'b0010; // add
+            7'bx1xxxx: opout = 4'b0110; // sub
+            7'b1x0000: opout = 4'b0010; // add(r)
+            7'b1x1000: opout = 4'b0110; // sub
+            7'b1x0111: opout = 4'b0000; // and
+            7'b1x0110: opout = 4'b0001; // or
+            default: opout = 4'bxxxx;
+        endcase
+    end
+endmodule
+
+
+// Control unit for the datapath (OPCODE --> Control Signals)
+module Control(i, equalFlag, ALUop, Branch, MemRead, MemtoReg, MemWrite, ALUsrc, RegWrite, IF_Flush);
+    input [31:0] i;
+    input equalFlag;
+    output reg [1:0] ALUop;
+    output reg Branch;
+    output reg MemRead;
+    output reg MemtoReg;
+    output reg MemWrite;
+    output reg ALUsrc;
+    output reg RegWrite;
+    output reg IF_Flush;
+    
+    always_comb begin
+        case(i[6:0])
+            7'b0010011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b10100000; // I-type
+            7'b0110011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b00100010; // R-type
+            7'b0000011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b11110000; // ld (I-type LOAD)
+            7'b0100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b1x001000; // sd (S-type)
+            7'b1100011: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'b0x000101; // beq (B-type)
+            default: {ALUsrc, MemtoReg, RegWrite, MemRead, MemWrite, Branch, ALUop} = 8'd0;
+        endcase
+    end
+    assign IF_Flush = (equalFlag && Branch)? 1'b1 : 1'b0; // Flush IFID registers to stall with NOP.
+endmodule   
+
+// Hazard Detection Unit to check Pipeline Hazards
+module HazardDetectionUnit(
+    input [31:0] IFID_i,
+    input [4:0] IDEX_Rd,
+    input MemRead,
+    output reg PC_Write,
+    output reg IFID_Write,
+    output reg hazard_flag
+);
+    wire [4:0] IFID_Rs1, IFID_Rs2;
+    assign IFID_Rs1 = IFID_i[19:15];
+    assign IFID_Rs2 = IFID_i[24:20];
+    always_comb begin
+        if(MemRead && ((IDEX_Rd == IFID_Rs1) || (IDEX_Rd == IFID_Rs2))) begin
+            // Stalling the pipeline
+            hazard_flag = 1'b1;
+            IFID_Write = 0;
+            PC_Write = 0;
+        end else begin
+            hazard_flag = 0;
+            IFID_Write = 1;
+            PC_Write = 1;
+        end
+    end
+endmodule
+
+module ForwardingUnit(IDEX_Rs1, IDEX_Rs2, EXM_Rd, EXM_RegWrite, MWB_Rd, MWB_RegWrite, ForwardA, ForwardB);
+    input [4:0] IDEX_Rs1, IDEX_Rs2, EXM_Rd, MWB_Rd;
+    input EXM_RegWrite, MWB_RegWrite;
+    output reg [1:0] ForwardA, ForwardB;
+    
+    //Forwarding Logic and driving the forwardA forwardB signals
+
+    // Forward from EX|M pipeline register
+    always_comb begin
+        if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs1)) begin
+            ForwardA = 2'b10; // Forward from EXM
+            ForwardB = 2'b00;
+        end 
+        else if (EXM_RegWrite && (EXM_Rd != 0) && (EXM_Rd == IDEX_Rs2)) begin
+            ForwardA = 2'b00;
+            ForwardB = 2'b10; // Forward from MWB
+        end
+        // Forward from M|WB pipeline register
+        else if (MWB_RegWrite
+                && (MWB_Rd != 0)
+                && ~(EXM_RegWrite && (EXM_Rd != 0)
+                && (EXM_Rd == IDEX_Rs1))
+                && (MWB_Rd == IDEX_Rs1)) begin 
+            ForwardA = 2'b01;
+            ForwardB = 2'b00;
+        end
+
+        else if (MWB_RegWrite
+                && (MWB_Rd != 0)
+                && ~(EXM_RegWrite && (EXM_Rd != 0)
+                && (EXM_Rd == IDEX_Rs2))
+                && (MWB_Rd == IDEX_Rs2)) begin 
+            ForwardA = 2'b00;
+            ForwardB = 2'b01;
+        end
+        else begin
+            // No forwarding, the ALU operands come from the register file
+            ForwardA = 2'b00;
+            ForwardB = 2'b00;
+        end
+    end 
+endmodule
+    
+
+
+//register with load enable
+module vDFFE(clk, en, in, out);
+  parameter n = 1;  // width
+  input clk, en ;
+  input [n-1:0] in ;
+  output reg [n-1:0] out ;
+  wire [n-1:0] next_out ;
+
+  assign next_out = en ? in : out;
+
+  always @(posedge clk)
+    out = next_out;  
+endmodule
+
+/* 64 bit mux */
+module MUX64(in0, in1, sel, out);
+    input [63:0] in0;
+    input [63:0] in1;
+    input sel;
+    output [63:0] out;
+
+    assign out = sel? in1 : in0;
 endmodule
