@@ -1,3 +1,4 @@
+//TEST 1
 addi x1, x0, #5
 addi x2, x0, #6
 
@@ -5,26 +6,41 @@ addi x2, x0, #6
 addi x3, x1, #7
 add x4, x1, x2
 
+
+
+//TEST 2
 //Data Hazard (requires forwarding)
 sub x4, x4, x3
 
+
+
+//TEST 3
 //MEM Hazard
 add x1, x1, x2
 and x1, x1, x3
 or x1, x1, x4
 
+
+
+//TEST 4
 //Store load Data Hazard Detection
 sw x4, 0(x2)
 lw x2, 0(x2)
 
+
+
+//TEST 5
 //Control hazards with branch instructions (branch not taken)
-beq x0, x1, #60
+beq x0, x1, #20
 addi x1, x0, #5
 addi x2, x0, #6
 add x4, x1, x2
 
+
+
+//TEST 6
 //Control hazards with branch instructions (branch taken)
-bne x1, x2, #60
+bne x1, x2, #10
 addi x1, x0, #5
 addi x2, x0, #6
 add x4, x1, x2
