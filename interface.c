@@ -174,12 +174,13 @@ int main(void)
 		data[5] = 0x002080b3;
 		data[6] = 0x0030f0b3;
 		data[7] = 0x0040e0b3;
-		data[8] = 0x00412023;
-		data[9] = 0x00012103;
+		data[8] = 0x00412023; // -1 at address 0x6,
+		data[9] = 0x00012103;  
 		N = 10;
 		
 		printf("Testing the following instructions: \n\r");
-		for(int i=0; i<N; i++){
+		int i;
+		for(i=0; i<N; i++){
 			printf("%x\n\r", data[i]);
 		}
 				

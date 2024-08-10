@@ -7,7 +7,7 @@ module iMem (
     output reg [31:0] instruction  // Instruction output
 );
 
-    parameter WIDTH = 1024;
+    parameter WIDTH = 256;
 
     reg [31:0] memory [0:WIDTH-1]; // Instruction memory array (stores <WIDTH> amount of 32-bit instructions)
     

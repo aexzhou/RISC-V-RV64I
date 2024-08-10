@@ -602,7 +602,7 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 	// State 11 : Increments the ith data Counter, 
 	// and goes back to the 0th state when all data (1024 slots) has been sent.
 	if (state==11) begin
-		if (ith_data_address == 1024) begin
+		if (ith_data_address == 256) begin
 			ith_data_address <= 0;
 			state <= 8'd0;
 		end

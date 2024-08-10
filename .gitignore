@@ -10,3 +10,9 @@ db/
 .qsys_edit/
 *.qsf
 output_files/
+incremental_db/
+hps_isw_handoff/
+c5_pin_model_dump.txt
+top_level.qws
+hps_sdram_p0_all_pins.txt
+hps_sdram_p0_summary.csv

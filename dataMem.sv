@@ -10,7 +10,7 @@ module dataMem (
     input wire mem_write,            // Memory write enable
     output reg [63:0] read_data      // Data read output
 );
-    parameter WIDTH = 1024;
+    parameter WIDTH = 256;
 
     reg [63:0] memory [0:WIDTH-1]; // Data memory array (stores <WIDTH> amount of 64-bit data)
 
