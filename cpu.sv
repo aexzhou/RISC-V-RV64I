@@ -41,8 +41,8 @@ reg [63:0] ALUout;
  */
 reg [31:0] iMem_out; 
 reg [63:0] PC_in, PC_out, PC_incremented;
-wire [64:0] IFID_pc_next;
-wire [32:0] IFID_i_next;
+wire [63:0] IFID_pc_next;
+wire [31:0] IFID_i_next;
 
 // assign PC_in = PC_src? PC_incremented : PC_plus_shimm; // MUX before PC
 assign PC_in = PC_src? PC_plus_shimm : PC_incremented; // MUX before PC:
@@ -53,11 +53,11 @@ always_comb PC_incremented = PC_out + 4; // PC incrementer
 // PC vDFFE with Reset
 wire [63:0] PC_next_out; 
 assign PC_next_out = PC_Write ? PC_in : PC_out; 
-always @(posedge clk, rst) begin
+always @(posedge clk, posedge rst) begin
     if(rst)begin
-        PC_out = 64'd0; // Reset to 0s on rst
+        PC_out <= 64'd0; // Reset to 0s on rst
     end else begin
-        PC_out = PC_next_out;
+        PC_out <= PC_next_out;
     end 
 end
 

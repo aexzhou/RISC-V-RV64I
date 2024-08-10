@@ -1,3 +1,6 @@
+import hidden_wires_pkg::*;
+import hidden_clk_pkg::*;
+
 module top_level (
 	////////////////////////////////////
 	// FPGA Pins
@@ -355,20 +358,20 @@ output					HPS_USB_STP;
 //  REG/WIRE declarations
 //=======================================================
 
-wire			[15: 0]	hex3_hex0;
+//wire			[15: 0]	hex3_hex0;
 //wire			[15: 0]	hex5_hex4;
 
 //assign HEX0 = ~hex3_hex0[ 6: 0]; // hex3_hex0[ 6: 0]; 
 //assign HEX1 = ~hex3_hex0[14: 8];
 //assign HEX2 = ~hex3_hex0[22:16];
 //assign HEX3 = ~hex3_hex0[30:24];
-assign HEX4 = 7'b1111111;
-assign HEX5 = 7'b1111111;
+//assign HEX4 = 7'b1111111;
+//assign HEX5 = 7'b1111111;
 
-HexDigit Digit0(HEX0, hex3_hex0[3:0]);
-HexDigit Digit1(HEX1, hex3_hex0[7:4]);
-HexDigit Digit2(HEX2, hex3_hex0[11:8]);
-HexDigit Digit3(HEX3, hex3_hex0[15:12]);
+//HexDigit Digit0(HEX0, hex3_hex0[3:0]);
+//HexDigit Digit1(HEX1, hex3_hex0[7:4]);
+//HexDigit Digit2(HEX2, hex3_hex0[11:8]);
+//HexDigit Digit3(HEX3, hex3_hex0[15:12]);
 
 
 /*
@@ -381,9 +384,9 @@ Top level state machine
 
 */
 wire cpu_clk;
-reg cpu_clk_src = 0;
+reg cpu_clk_src;
 assign cpu_clk = (cpu_clk_src)? CLOCK_50 : 1'b0; 
-reg cpu_rst;
+reg cpu_rst = 0;
 cpu CPU(cpu_clk, cpu_rst);
 
 
@@ -446,17 +449,23 @@ reg [7:0] FPGA_to_HPS_state ;
 reg [63:0] ith_instruction_address = 64'd0;
 reg [63:0] ith_data_address = 64'd0;
 
+//=======================================================
+// do the work outlined above
+
+// Hidden Connections, see "hidden_wires_pkg.sv" for details. 
 hidden_wires_pkg::hidden_wires_t        imem_wires;
 hidden_wires_pkg::hidden_wires_t        dmem_data;
 hidden_wires_pkg::hidden_wires_t        dmem_addr;
+hidden_wires_pkg::hidden_wires_t        imem_flag;
 hidden_clk_pkg::hidden_clk_t        hidden_clk;
-//=======================================================
-// do the work outlined above
+
+// Hidden Clock Signal 
+
+
 always @(posedge CLOCK_50) begin // CLOCK_50
 
+	hidden_clk_pkg::connect(hidden_clk, 1'b1); // Top level sends out clk signal.
 	hidden_clk.clk <= CLOCK_50;
-	hidden_clk_pkg::connect(hidden_clk, 1'b1);
-
 	// =================================
 	// HPS_to_FPGA state machine
 	//================================== 
@@ -489,6 +498,7 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 	end
 	
 	// State 2 : Read the word from the FIFO
+	hidden_wires_pkg::connect(imem_wires, 1'b1);
 	if (state == 8'd2) begin
 		cpu_clk_src <= 1'b0;
 		if(&hps_to_fpga_readdata) // check if all the bits are 1s (which is the terminating command)
@@ -496,15 +506,15 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 		else begin
 			// CPU.IMEM.memory[ith_instruction_address] <= hps_to_fpga_readdata ; // send back data
 			
-			imem_wires.data <= hps_to_fpga_readdata;
-			imem_wires.address <= ith_instruction_address;
+			imem_wires.address = ith_instruction_address;
+			imem_wires.enable = 1'b1;
+			imem_wires.data = hps_to_fpga_readdata;
 
 			data_buffer_valid <= 1'b1 ; // set the data ready flag
 			hps_to_fpga_read <= 1'b0 ;
 			state <= 8'd3; 
 		end
 	end
-	hidden_wires_pkg::connect(imem_wires, 1'b1);
 	
 
 	// State 3 : Increments the ith_instruction_address counter
@@ -522,11 +532,12 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 	end
 
 	// State 5 : Wait for CPU to finish execution
+	hidden_wires_pkg::connect(imem_flag, 1'b0);
 	if (state == 8'd5) begin
 		cpu_clk_src <= 1'b1; // Sets CPU's clk to be CLOCK_50
 		cpu_rst <= 1'b0;
 		// Waits for CPU to execute its last instruction address
-		if(CPU.PC_out[63:2] == 62'h400) state <= 8'd6; // If PC has been through all 1024 instruction spaces
+		if(imem_flag.enable) state <= 8'd6; // If PC has been through all 1024 instruction spaces
 		else state <= 8'd5; // CPU may still be running in this case
 	end
 
@@ -546,20 +557,23 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 	// and data is available
 	// The Data Memory in this CPU has a depth of 1024
 
+	hidden_wires_pkg::connect(dmem_data, 1'b0); // Top level recieves Data Memory's data.
+	hidden_wires_pkg::connect(dmem_addr, 1'b1); // Top level must tell Data Memory the address for data retrieval first.
 	// Sending the Upper Half (MSB) 32 bits first ...
 	// State 7
 	if (state==7 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
 		// feeds the ith data memory location to the SRAM
 		// fpga_to_hps_in_writedata <= CPU.dataMem.memory[ith_data_address][63:32]; 
-		dmem_addr.address <= ith_data_address;
-		fpga_to_hps_in_writedata <= dmem_data.data[63:32]; 
-
+		dmem_addr.address = ith_data_address;
+		dmem_addr.enable = 1;
+		fpga_to_hps_in_writedata = dmem_data.data64[63:32]; 
 		fpga_to_hps_in_write <= 1'b1 ;
 		state <= 8'd8 ;
 	end
 	
 	// State 8 : Finish the Upper Half write to FPGA_to_HPS FIFO
 	if (state==8) begin
+		dmem_addr.enable = 0;
 		fpga_to_hps_in_write <= 1'b0 ;
 		data_buffer_valid <= 1'b0 ; // used the data, so clear flag
 		state <= 8'd9 ;
@@ -569,17 +583,17 @@ always @(posedge CLOCK_50) begin // CLOCK_50
 	if (state==9 && !(fpga_to_hps_in_csr_readdata[0]) && data_buffer_valid) begin
 		// feeds the ith data memory location to the SRAM
 		// fpga_to_hps_in_writedata <= CPU.dMEM.memory[ith_data_address][31:0]; 
-		dmem_addr.address <= ith_data_address;
-		fpga_to_hps_in_writedata <= dmem_data.data[31:0]; 
+		dmem_addr.address = ith_data_address;
+		dmem_addr.enable = 1;
+		fpga_to_hps_in_writedata = dmem_data.data64[31:0]; 
 
 		fpga_to_hps_in_write <= 1'b1 ;
 		state <= 8'd10 ;
 	end
-	hidden_wires_pkg::connect(dmem_data, 1'b0);
-	hidden_wires_pkg::connect(dmem_addr, 1'b1);
 
 	// State 10 : Finish the Lower Half write to FPGA_to_HPS FIFO
 	if (state==10) begin
+		dmem_addr.enable = 0;
 		fpga_to_hps_in_write <= 1'b0 ;
 		data_buffer_valid <= 1'b0 ; // used the data, so clear flag
 		state <= 8'd11 ;

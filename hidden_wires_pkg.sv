@@ -5,6 +5,7 @@ package hidden_wires_pkg;
 typedef struct packed {
     logic [63:0]        address;
     logic [31:0]        data;
+    logic [63:0]        data64;
     logic               enable;
 } hidden_wires_t;
 
@@ -24,20 +25,4 @@ endfunction
 endpackage
 
 
-package hidden_clk_pkg;
 
-typedef struct packed {
-    logic               clk;
-} hidden_clk_t;
-
-function void connect(inout hidden_clk_t clk, input logic set);
-
-    hidden_clk_t global_clk;
-
-    if (set)
-        global_clk = clk;
-
-    clk = global_clk;
-endfunction
-
-endpackage

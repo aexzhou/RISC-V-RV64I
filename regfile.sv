@@ -23,7 +23,7 @@ module regfile(i,writeR,write_data,write,clk,rst,data_out1,data_out2);
   reg [63:0] X [0:31] = '{default:64'b0}; // 32 X 64-bit registers
  
   // WRITING LOGIC
-  always @(posedge clk, rst, write, writeR, write_data) begin
+  always @(posedge clk) begin
     if(rst)begin
       X <= '{default:64'b0}; // Upon reset, set all reg data to 64'b0
     end else begin
